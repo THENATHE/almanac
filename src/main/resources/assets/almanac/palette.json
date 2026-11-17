@@ -1,0 +1,163 @@
+{
+    "_comment": "Seasonal colours. Each sub-season's step is \"multiply\": [r, g, b] on the colour, \"mix\": \"#rrggbb\" with \"amount\" (0 to 1, how far to move towards that colour), both, or \"color\": \"#rrggbb\"; a sub-season left out keeps the colour. The colour given is the one for the sub-season's middle day; clients with Almanac blend the days in between. \"biomes\" entries replace whole channels for the biomes they match (ID or #tag); the first match wins. \"leaves\" is for clients with Almanac: a leaf block is matched by ID, then by #tag; \"steps\" change the colour its own tint gives, \"follow\": \"foliage\" makes it follow the biome foliage palette, \"keep\": true leaves it alone. Untinted leaves never change. Resource packs can replace this file.",
+    "default": {
+        "grass": {
+            "early_spring": {"mix": "#7fcf4a", "amount": 0.2},
+            "mid_spring": {"mix": "#78cc50", "amount": 0.12},
+            "late_spring": {"mix": "#78c450", "amount": 0.05},
+            "late_summer": {"mix": "#a5ad55", "amount": 0.12},
+            "early_fall": {"mix": "#a8a850", "amount": 0.3},
+            "mid_fall": {"mix": "#a89a4a", "amount": 0.55},
+            "late_fall": {"mix": "#9a8a4c", "amount": 0.6},
+            "early_winter": {"mix": "#8c8a5e", "amount": 0.55},
+            "mid_winter": {"mix": "#868a66", "amount": 0.6},
+            "late_winter": {"mix": "#8a9a5e", "amount": 0.45}
+        },
+        "foliage": {
+            "early_spring": {"mix": "#7ccf3a", "amount": 0.25},
+            "mid_spring": {"mix": "#6fc93a", "amount": 0.15},
+            "late_spring": {"mix": "#66be36", "amount": 0.05},
+            "late_summer": {"mix": "#8f9a3a", "amount": 0.12},
+            "early_fall": {"mix": "#d89a24", "amount": 0.7},
+            "mid_fall": {"mix": "#d2661c", "amount": 0.85},
+            "late_fall": {"mix": "#a2562a", "amount": 0.8},
+            "early_winter": {"mix": "#6e5233", "amount": 0.7},
+            "mid_winter": {"mix": "#5f5e3e", "amount": 0.6},
+            "late_winter": {"mix": "#607444", "amount": 0.45}
+        },
+        "dry_foliage": {
+            "early_spring": {"multiply": [0.95, 1.04, 0.95]},
+            "late_summer": {"multiply": [1.03, 1.0, 0.95]},
+            "early_fall": {"multiply": [1.08, 0.96, 0.88]},
+            "mid_fall": {"multiply": [1.15, 0.9, 0.8]},
+            "late_fall": {"multiply": [1.1, 0.85, 0.78]},
+            "early_winter": {"multiply": [0.95, 0.85, 0.82]},
+            "mid_winter": {"multiply": [0.9, 0.84, 0.84]},
+            "late_winter": {"multiply": [0.92, 0.9, 0.88]}
+        }
+    },
+    "biomes": [
+        {
+            "match": ["minecraft:dappled_forest"],
+            "grass": {
+                "early_spring": {"color": "#9aa83c"},
+                "mid_spring": {"color": "#a6aa3a"},
+                "late_spring": {"color": "#b4a535"},
+                "early_summer": {"color": "#bba033"},
+                "mid_summer": {"color": "#c49432"},
+                "late_summer": {"color": "#cf862e"},
+                "early_fall": {"color": "#d8752a"},
+                "mid_fall": {"color": "#df6827"},
+                "late_fall": {"color": "#c65a26"},
+                "early_winter": {"color": "#9c5a35"},
+                "mid_winter": {"color": "#8a5a3c"},
+                "late_winter": {"color": "#8f6238"}
+            },
+            "foliage": {
+                "early_spring": {"color": "#a8b040"},
+                "mid_spring": {"color": "#b4b03e"},
+                "late_spring": {"color": "#c2ac3a"},
+                "early_summer": {"color": "#cca636"},
+                "mid_summer": {"color": "#d6a034"},
+                "late_summer": {"color": "#de9832"},
+                "early_fall": {"color": "#e39231"},
+                "mid_fall": {"color": "#e68e30"},
+                "late_fall": {"color": "#cf7a2c"},
+                "early_winter": {"color": "#a2683a"},
+                "mid_winter": {"color": "#8e623f"},
+                "late_winter": {"color": "#96703f"}
+            },
+            "dry_foliage": {
+                "early_spring": {"color": "#6f6a1c"},
+                "mid_spring": {"color": "#78661a"},
+                "late_spring": {"color": "#806018"},
+                "early_summer": {"color": "#845812"},
+                "mid_summer": {"color": "#884e0e"},
+                "late_summer": {"color": "#8a4609"},
+                "early_fall": {"color": "#8b4006"},
+                "mid_fall": {"color": "#8c3a04"},
+                "late_fall": {"color": "#7a3608"},
+                "early_winter": {"color": "#663a1c"},
+                "mid_winter": {"color": "#5c3c26"},
+                "late_winter": {"color": "#614026"}
+            }
+        },
+        {
+            "match": ["#minecraft:is_jungle", "minecraft:mangrove_swamp"],
+            "grass": {
+                "mid_summer": {"multiply": [1.02, 0.96, 0.92]},
+                "late_summer": {"multiply": [1.01, 0.98, 0.95]}
+            },
+            "foliage": {
+                "mid_summer": {"multiply": [1.02, 0.95, 0.9]},
+                "late_summer": {"multiply": [1.01, 0.97, 0.94]}
+            }
+        },
+        {
+            "match": ["#minecraft:is_savanna"],
+            "foliage": {
+                "early_summer": {"multiply": [1.06, 1.0, 0.92]},
+                "mid_summer": {"multiply": [1.15, 1.0, 0.8]},
+                "late_summer": {"multiply": [1.08, 1.0, 0.88]},
+                "early_winter": {"multiply": [1.02, 0.95, 0.92]},
+                "mid_winter": {"multiply": [1.0, 0.94, 0.92]},
+                "late_winter": {"multiply": [1.0, 0.97, 0.95]}
+            }
+        }
+    ],
+    "leaves": [
+        {
+            "_comment": "Birch: clear yellow in fall, from its own fixed tint.",
+            "match": ["minecraft:birch_leaves"],
+            "steps": {
+                "early_spring": {"mix": "#8fcf5a", "amount": 0.25},
+                "mid_spring": {"mix": "#8acb5a", "amount": 0.15},
+                "late_summer": {"mix": "#a6b050", "amount": 0.15},
+                "early_fall": {"mix": "#d8c43a", "amount": 0.6},
+                "mid_fall": {"color": "#f0cc2c"},
+                "late_fall": {"mix": "#d8a42c", "amount": 0.9},
+                "early_winter": {"mix": "#8f7a48", "amount": 0.6},
+                "mid_winter": {"mix": "#7d7c5a", "amount": 0.5},
+                "late_winter": {"mix": "#86a05a", "amount": 0.3}
+            }
+        },
+        {
+            "_comment": "Spruce: stays dark, a little darker in fall and cooler in winter.",
+            "match": ["minecraft:spruce_leaves"],
+            "steps": {
+                "early_spring": {"mix": "#6aa868", "amount": 0.2},
+                "mid_fall": {"multiply": [0.96, 0.94, 0.94]},
+                "late_fall": {"multiply": [0.92, 0.9, 0.92]},
+                "early_winter": {"mix": "#4c7a70", "amount": 0.3},
+                "mid_winter": {"mix": "#48766f", "amount": 0.4},
+                "late_winter": {"mix": "#4f7f6e", "amount": 0.25}
+            }
+        },
+        {
+            "_comment": "Dark oak: deep red-brown in fall, on top of the biome's seasonal foliage.",
+            "match": ["minecraft:dark_oak_leaves"],
+            "steps": {
+                "early_fall": {"mix": "#6e3a1a", "amount": 0.25},
+                "mid_fall": {"mix": "#6a2616", "amount": 0.55},
+                "late_fall": {"mix": "#5e2a18", "amount": 0.5},
+                "early_winter": {"mix": "#5a3a26", "amount": 0.3},
+                "mid_winter": {"mix": "#52402e", "amount": 0.15}
+            }
+        },
+        {
+            "_comment": "Oak, jungle, acacia and mangrove read the biome's foliage colour, so they follow the biome palette (jungles and mangrove swamps stay green; savannas yellow in mid summer).",
+            "match": ["minecraft:oak_leaves", "minecraft:jungle_leaves", "minecraft:acacia_leaves", "minecraft:mangrove_leaves"],
+            "follow": "foliage"
+        },
+        {
+            "_comment": "Untinted leaves keep their own textures: cherry, azalea, pale oak and the Dappled Forest's poplars.",
+            "match": ["minecraft:cherry_leaves", "minecraft:azalea_leaves", "minecraft:flowering_azalea_leaves", "minecraft:pale_oak_leaves", "minecraft:orange_poplar_leaves", "minecraft:yellow_poplar_leaves", "minecraft:red_poplar_leaves"],
+            "keep": true
+        },
+        {
+            "_comment": "Any other leaves: tinted ones follow the biome foliage palette, untinted ones stay as they are.",
+            "match": ["#minecraft:leaves"],
+            "follow": "foliage"
+        }
+    ]
+}
