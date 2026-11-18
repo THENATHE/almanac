@@ -6,8 +6,11 @@ import com.thenathe.almanac.biome.SeasonRefresh;
 import com.thenathe.almanac.config.ServerConfig;
 import com.thenathe.almanac.season.ServerSeasons;
 import java.util.EnumMap;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.UUID;
+import java.util.function.Function;
 import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.network.chat.Component;
@@ -16,9 +19,14 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.permissions.Permissions;
 import org.jspecify.annotations.Nullable;
 
-/** Registers the payloads, keeps clients with Almanac in step and answers settings changes. */
+/**
+ * Registers the payloads, keeps clients with Almanac in step and answers settings changes. Every payload follows
+ * {@link PayloadFormat}: fields are only added at the end, anything else gets a new channel.
+ */
 public final class ServerNetworking {
     private static @Nullable SeasonSyncPayload lastSync;
+    /** Whether each player was last told they may change the settings, to tell them again when that changes. */
+    private static final Map<UUID, Boolean> SENT_EDIT_RIGHTS = new HashMap<>();
 
     private ServerNetworking() {
     }
@@ -27,12 +35,16 @@ public final class ServerNetworking {
         PayloadTypeRegistry.clientboundPlay().register(SeasonSyncPayload.TYPE, SeasonSyncPayload.CODEC);
         PayloadTypeRegistry.clientboundPlay().register(SettingsPayloads.Snapshot.TYPE, SettingsPayloads.Snapshot.CODEC);
         PayloadTypeRegistry.serverboundPlay().register(SettingsPayloads.Update.TYPE, SettingsPayloads.Update.CODEC);
+        PayloadTypeRegistry.serverboundPlay().register(SettingsPayloads.Change.TYPE, SettingsPayloads.Change.CODEC);
         PayloadTypeRegistry.clientboundPlay().register(FarClimatePayloads.State.TYPE, FarClimatePayloads.State.CODEC);
         PayloadTypeRegistry.clientboundPlay().register(FarClimatePayloads.Tile.TYPE, FarClimatePayloads.Tile.CODEC);
         PayloadTypeRegistry.clientboundPlay().register(FarClimatePayloads.Forget.TYPE, FarClimatePayloads.Forget.CODEC);
+        PayloadTypeRegistry.clientboundPlay().register(FarClimatePayloads.SnowChanged.TYPE, FarClimatePayloads.SnowChanged.CODEC);
         PayloadTypeRegistry.clientboundPlay().register(WorldWeatherPayload.TYPE, WorldWeatherPayload.CODEC);
         ServerPlayNetworking.registerGlobalReceiver(SettingsPayloads.Update.TYPE, (payload, context) ->
-                updateSettings(context.player(), payload.json()));
+                updateSettings(context.player(), payload.json(), ServerConfig::fromJson));
+        ServerPlayNetworking.registerGlobalReceiver(SettingsPayloads.Change.TYPE, (payload, context) ->
+                updateSettings(context.player(), payload.json(), changes -> ServerConfig.withChanges(ServerConfig.get(), changes)));
     }
 
     /**
@@ -75,6 +87,23 @@ public final class ServerNetworking {
 
     public static void serverStopped() {
         lastSync = null;
+        SENT_EDIT_RIGHTS.clear();
+    }
+
+    public static void playerLeft(ServerPlayer player) {
+        SENT_EDIT_RIGHTS.remove(player.getUUID());
+    }
+
+    /**
+     * The game told a player their permission level, for example after {@code /op} or {@code /deop}. A player whose
+     * right to change the settings changed gets the settings again with the new right, so the settings screen follows
+     * without reconnecting.
+     */
+    public static void permissionsSent(ServerPlayer player) {
+        Boolean sent = SENT_EDIT_RIGHTS.get(player.getUUID());
+        if (sent != null && sent != mayEditSettings(player)) {
+            sendSettings(player);
+        }
     }
 
     private static @Nullable SeasonSyncPayload currentSync() {
@@ -92,7 +121,9 @@ public final class ServerNetworking {
 
     public static void sendSettings(ServerPlayer player) {
         if (ServerPlayNetworking.canSend(player, SettingsPayloads.Snapshot.TYPE)) {
-            ServerPlayNetworking.send(player, new SettingsPayloads.Snapshot(mayEditSettings(player), ServerConfig.get().toJson()));
+            boolean mayEdit = mayEditSettings(player);
+            ServerPlayNetworking.send(player, new SettingsPayloads.Snapshot(mayEdit, ServerConfig.get().toJson()));
+            SENT_EDIT_RIGHTS.put(player.getUUID(), mayEdit);
         }
     }
 
@@ -102,14 +133,17 @@ public final class ServerNetworking {
         return player.permissions().hasPermission(Permissions.COMMANDS_GAMEMASTER) || server.isSingleplayerOwner(player.nameAndId());
     }
 
-    private static void updateSettings(ServerPlayer player, String json) {
+    /**
+     * @param read turns what the player sent into the new settings, or null when it doesn't read
+     */
+    private static void updateSettings(ServerPlayer player, String json, Function<String, @Nullable ServerConfig> read) {
         if (!mayEditSettings(player)) {
             player.sendSystemMessage(Component.translatableWithFallback("almanac.settings.denied",
                     "Only operators can change the server settings."));
             sendSettings(player);
             return;
         }
-        ServerConfig updated = ServerConfig.fromJson(json);
+        ServerConfig updated = read.apply(json);
         if (updated == null) {
             player.sendSystemMessage(Component.translatableWithFallback("almanac.settings.unreadable",
                     "The server couldn't read those settings, so nothing changed."));

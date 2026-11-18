@@ -108,6 +108,17 @@ public final class SnowRules {
         return stillWater && coldNow && darkEnough;
     }
 
+    /**
+     * Whether water beside a spot holds back its freezing in a loaded chunk, which freezes from the shore inward: only
+     * water that will freeze itself does, still water on top of its column where the season brings ice. Kelp,
+     * seagrass, waterlogged blocks, flowing water, water under a dock and oceans count as shore, so the ice closes
+     * around them instead of waiting all winter. Vanilla counts all of those as water.
+     */
+    public static boolean holdsBackFreezing(boolean stillWater, boolean onTop, boolean seasonalIce, boolean coldNow,
+                                            boolean darkEnough) {
+        return onTop && seasonalIce && freezes(stillWater, coldNow, darkEnough);
+    }
+
     /** Only the season's ice melts; native ice stays frozen. */
     public static boolean iceMelts(boolean modIce, boolean coldNow) {
         return modIce && !coldNow;

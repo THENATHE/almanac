@@ -8,6 +8,7 @@ import net.minecraft.network.chat.Component;
 public final class SettingsPage {
     private final Component name;
     private final List<PageRow> rows = new ArrayList<>();
+    private boolean readOnly;
 
     public SettingsPage(Component name) {
         this.name = name;
@@ -32,6 +33,16 @@ public final class SettingsPage {
     public SettingsPage add(PageRow row) {
         rows.add(row);
         return this;
+    }
+
+    /** Shows the page's settings without letting them be changed: the controls are greyed out and have no reset. */
+    public SettingsPage readOnly() {
+        readOnly = true;
+        return this;
+    }
+
+    public boolean isReadOnly() {
+        return readOnly;
     }
 
     public Component name() {

@@ -23,7 +23,10 @@ public record WorldWeatherPayload(float rain, float thunder) implements CustomPa
             },
             buffer -> {
                 buffer.readVarInt();
-                return new WorldWeatherPayload(Math.clamp(buffer.readFloat(), 0.0F, 1.0F), Math.clamp(buffer.readFloat(), 0.0F, 1.0F));
+                WorldWeatherPayload weather = new WorldWeatherPayload(Math.clamp(buffer.readFloat(), 0.0F, 1.0F),
+                        Math.clamp(buffer.readFloat(), 0.0F, 1.0F));
+                PayloadFormat.skipNewerFields(buffer);
+                return weather;
             });
 
     @Override

@@ -5,6 +5,7 @@ import com.mojang.serialization.codecs.RecordCodecBuilder;
 import com.thenathe.almanac.api.Climate;
 import com.thenathe.almanac.api.SubSeason;
 import com.thenathe.almanac.climate.WeatherKind;
+import com.thenathe.almanac.season.SavedFields;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
@@ -48,12 +49,13 @@ public final class SnowLog {
             return subSeason == otherSubSeason && raining == otherRaining && reached.equals(otherReached);
         }
 
+        /** A segment without a start or a sub-season can't be placed in the log, so the log leaves it out. */
         static final Codec<Segment> CODEC = RecordCodecBuilder.create(instance -> instance.group(
                 Codec.LONG.fieldOf("start").forGetter(Segment::start),
                 Codec.STRING.fieldOf("sub_season").forGetter(segment -> segment.subSeason().id()),
-                Codec.BOOL.optionalFieldOf("raining", false).forGetter(Segment::raining),
-                Codec.STRING.listOf().optionalFieldOf("reached", List.of()).forGetter(segment ->
-                        segment.reached().stream().sorted().map(Climate::id).toList())
+                SavedFields.optional(SnowData.FILE, "raining", Codec.BOOL, false).forGetter(Segment::raining),
+                SavedFields.optional(SnowData.FILE, "reached", Codec.STRING.listOf(), List.<String>of())
+                        .forGetter(segment -> segment.reached().stream().sorted().map(Climate::id).toList())
         ).apply(instance, (start, subSeason, raining, reached) -> new Segment(start,
                 SubSeason.byId(subSeason).orElse(SubSeason.EARLY_SPRING), raining, climates(reached))));
     }
@@ -129,6 +131,8 @@ public final class SnowLog {
             return depth;
         }
         WeatherKind kind = WeatherKind.of(climate, segment.subSeason());
+        // The same climates the seasonal biome copies make cold. That only holds because the winter and summer
+        // temperature settings stay either side of vanilla's snow line; ColdRulesAgreeTest keeps the two together.
         boolean cold = kind == WeatherKind.SNOW || kind == WeatherKind.SNOW_LINE;
         if (!cold) {
             depth -= duration * MELT_PER_TICK;
@@ -172,6 +176,28 @@ public final class SnowLog {
         return List.copyOf(segments);
     }
 
+    /** When the log's checkpoint is: the depths there are known, and the weather before it is folded in. */
+    public long checkpointTick() {
+        return checkpointTick;
+    }
+
+    /** The latest time the log knows of: the start of its newest segment, or its checkpoint. */
+    public long latestTick() {
+        Segment last = segments.peekLast();
+        return last == null ? checkpointTick : Math.max(checkpointTick, last.start());
+    }
+
+    /** Moves every time in the log back by {@code ticks}, keeping the weather and the depths it gives. */
+    public void moveBack(long ticks) {
+        checkpointTick -= ticks;
+        List<Segment> moved = new ArrayList<>(segments.size());
+        for (Segment segment : segments) {
+            moved.add(new Segment(segment.start() - ticks, segment.subSeason(), segment.raining(), segment.reached()));
+        }
+        segments.clear();
+        segments.addAll(moved);
+    }
+
     private static Set<Climate> climates(List<String> ids) {
         Set<Climate> climates = EnumSet.noneOf(Climate.class);
         for (String id : ids) {
@@ -186,10 +212,11 @@ public final class SnowLog {
 
     private record Saved(long checkpointTick, Map<String, Double> checkpoint, List<Segment> segments) {
         static final Codec<Saved> CODEC = RecordCodecBuilder.create(instance -> instance.group(
-                Codec.LONG.optionalFieldOf("checkpoint_tick", 0L).forGetter(Saved::checkpointTick),
-                Codec.unboundedMap(Codec.STRING, Codec.DOUBLE).optionalFieldOf("checkpoint_depth", Map.of())
-                        .forGetter(Saved::checkpoint),
-                Segment.CODEC.listOf().optionalFieldOf("segments", List.of()).forGetter(Saved::segments)
+                SavedFields.optional(SnowData.FILE, "checkpoint_tick", Codec.LONG, 0L).forGetter(Saved::checkpointTick),
+                SavedFields.optional(SnowData.FILE, "checkpoint_depth", Codec.unboundedMap(Codec.STRING, Codec.DOUBLE),
+                        Map.<String, Double>of()).forGetter(Saved::checkpoint),
+                SavedFields.optional(SnowData.FILE, "segments", Segment.CODEC.listOf(), List.<Segment>of())
+                        .forGetter(Saved::segments)
         ).apply(instance, Saved::new));
     }
 

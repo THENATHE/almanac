@@ -78,8 +78,16 @@ abstract class ServerLevelMixin {
             target = "Lnet/minecraft/server/players/PlayerList;broadcastAll(Lnet/minecraft/network/protocol/Packet;)V"))
     private void almanac$weatherChangePerPlayer(PlayerList players, Packet<?> packet, Operation<Void> original) {
         ServerLevel self = (ServerLevel) (Object) this;
-        if (!(packet instanceof ClientboundGameEventPacket event) || !PlayerWeather.manages(self)) {
+        if (!(packet instanceof ClientboundGameEventPacket event)) {
             original.call(players, packet);
+            return;
+        }
+        if (!PlayerWeather.manages(self)) {
+            original.call(players, packet);
+            // Another dimension's start or stop reaches overworld players too and resets their rain level.
+            if (PlayerWeather.isRainStartOrStop(event)) {
+                PlayerWeather.resendAll();
+            }
             return;
         }
         if (PlayerWeather.isWeatherLevelPacket(event)) {

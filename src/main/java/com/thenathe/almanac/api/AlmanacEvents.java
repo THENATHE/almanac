@@ -16,7 +16,8 @@ public final class AlmanacEvents {
      *   <li>On a client connected to an Almanac server, on the client thread, with the client's level, when the
      *   server's season sync arrives, including the first one after joining.</li>
      * </ul>
-     * In singleplayer both happen, each with its own level; check {@link Level#isClientSide()} if only one matters.
+     * In singleplayer both happen, each with its own level; check {@link Level#isClientSide()} if only one matters. On
+     * a client the level is the one the player is in, so in the Nether or the End every answer for it is empty.
      * Snow depths count as changed when they move by a sixteenth of a layer, the precision clients get, so a long
      * snowfall fires every few hundred ticks. Listeners should be quick: drop a cache rather than rebuild it here.
      */
@@ -40,7 +41,12 @@ public final class AlmanacEvents {
      *   changes (everywhere, climate).</li>
      * </ul>
      * Always on the client thread, with the client's level, after the change has been applied, so the lookups already
-     * give the new answers. Never on the server. Nothing fires on disconnecting, when every answer becomes unknown.
+     * give the new answers. That level is the one the player is in, so in the Nether or the End every answer for it is
+     * unknown. Never on the server. Nothing fires on disconnecting, when every answer becomes unknown. Only a change
+     * that is everywhere with {@code snowLines} alone is the far land itself changing (a season change, to animate);
+     * the rest is map data arriving or going, to show at once.
+     *
+     * @since 0.1.2
      */
     public static final Event<FarClimateChanged> FAR_CLIMATE_CHANGED = EventFactory.createArrayBacked(FarClimateChanged.class,
             listeners -> (level, change) -> {
@@ -70,6 +76,7 @@ public final class AlmanacEvents {
         }
     }
 
+    /** @since 0.1.2 */
     @FunctionalInterface
     public interface FarClimateChanged {
         void onFarClimateChanged(Level level, FarChange change);
@@ -82,6 +89,7 @@ public final class AlmanacEvents {
      * @param snowLines {@link AlmanacApi#farSnowLine} may give other answers
      * @param colours   the seasonal grass and foliage colours may differ
      * @param climate   {@link AlmanacApi#farClimate} may differ
+     * @since 0.1.2
      */
     public record FarChange(int minX, int minZ, int maxX, int maxZ, boolean snowLines, boolean colours, boolean climate) {
         /** Every column. */

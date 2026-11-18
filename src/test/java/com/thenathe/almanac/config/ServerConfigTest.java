@@ -6,6 +6,8 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import com.thenathe.almanac.api.Climate;
 import com.thenathe.almanac.api.SubSeason;
 import org.junit.jupiter.api.Test;
@@ -138,5 +140,45 @@ class ServerConfigTest {
         assertEquals(64, config.farClimateCellSize);
         assertThrows(IllegalArgumentException.class,
                 () -> ServerSetting.byName("farClimateCellSize").orElseThrow().set(config, "48"));
+    }
+
+    @Test
+    void theScreenSendsOnlyWhatChanged() {
+        ServerConfig opened = new ServerConfig();
+        ServerConfig edited = opened.copy();
+        edited.paused = true;
+        edited.temperateShare.put("mid_winter", 35);
+        JsonObject changes = ServerConfig.changes(opened, edited);
+        assertEquals(JsonParser.parseString("{\"paused\": true, \"temperateShare\": {\"mid_winter\": 35}}"), changes);
+        assertTrue(ServerConfig.changes(opened, opened.copy()).isEmpty());
+    }
+
+    @Test
+    void changesGoOnTopOfTheLatestSettings() {
+        ServerConfig opened = new ServerConfig();
+        ServerConfig edited = opened.copy();
+        edited.paused = true;
+        edited.temperateShare.put("mid_winter", 35);
+        // Meanwhile the console made the seasons longer and changed another share.
+        ServerConfig latest = opened.copy();
+        latest.daysPerSeason = 48;
+        latest.temperateShare.put("late_winter", 10);
+
+        ServerConfig saved = ServerConfig.withChanges(latest, ServerConfig.changes(opened, edited).toString());
+        assertEquals(48, saved.daysPerSeason, "the console's change stays");
+        assertEquals(10, saved.share(Climate.TEMPERATE, SubSeason.LATE_WINTER));
+        assertTrue(saved.paused);
+        assertEquals(35, saved.share(Climate.TEMPERATE, SubSeason.MID_WINTER));
+    }
+
+    @Test
+    void changesAreCheckedLikeAFile() {
+        ServerConfig base = new ServerConfig();
+        ServerConfig saved = ServerConfig.withChanges(base, "{\"daysPerSeason\": 0, \"version\": 99, \"unknown\": 1}");
+        assertEquals(ServerConfig.MIN_DAYS_PER_SEASON, saved.daysPerSeason);
+        assertEquals(1, saved.version);
+        assertNull(ServerConfig.withChanges(base, "[1, 2]"));
+        assertNull(ServerConfig.withChanges(base, "{not json"));
+        assertNull(ServerConfig.withChanges(base, "{\"daysPerSeason\": \"many\"}"));
     }
 }

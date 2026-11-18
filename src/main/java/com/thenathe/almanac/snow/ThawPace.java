@@ -1,5 +1,11 @@
 package com.thenathe.almanac.snow;
 
+import com.mojang.serialization.Codec;
+import com.mojang.serialization.codecs.RecordCodecBuilder;
+import com.thenathe.almanac.season.SeasonClock;
+import java.util.Arrays;
+import org.jspecify.annotations.Nullable;
+
 /**
  * How fast the season's snow and ice go from loaded chunks when it turns warm: over a set stretch of game
  * time, in patches that start small and spread, instead of in one sweep.
@@ -9,17 +15,25 @@ package com.thenathe.almanac.snow;
  * a chunk's thaw has passed a column's point, that column's snow and ice may go. The points are spread almost evenly,
  * so the snow cover falls at a fairly steady rate, and everything may go once the thaw is over.
  *
+ * <p>Snow forming in loaded chunks goes the same way (user, 2026-11-17, via the audit): when more snow belongs there,
+ * it comes in patches that start small and spread, over a window of the same length and with the same points, so a
+ * column that thaws early also gains its snow early. Chunks that load get their snow at once.
+ *
  * <p>Thaws are counted in game ticks, so they speed up with {@code /tick rate} and {@code /tick sprint} like every
  * other part of the season.
  */
 public final class ThawPace {
-    public static final long TICKS_PER_DAY = 24_000L;
     /** Broad patches about this many blocks across, broken up by smaller ones and a little grain per column. */
     private static final int PATCH_SIZE = 16;
     private static final int SMALL_PATCH_SIZE = 4;
     private static final double PATCH_WEIGHT = 0.6;
     private static final double SMALL_PATCH_WEIGHT = 0.25;
     private static final double GRAIN_WEIGHT = 0.15;
+    /**
+     * A chunk waiting on its thaw or its snow forming is looked at no more than about this many times over it: each
+     * look takes the next thirty-second or so of the chunk's snow, which still reads as patches spreading.
+     */
+    static final int MOST_VISITS = 32;
 
     private ThawPace() {
     }
@@ -30,13 +44,37 @@ public final class ThawPace {
      */
     public static long duration(double thawDays, int subSeasonDays) {
         double days = Math.min(thawDays, subSeasonDays / 2.0);
-        return Math.max(1L, Math.round(days * TICKS_PER_DAY));
+        return Math.max(1L, Math.round(days * SeasonClock.TICKS_PER_DAY));
     }
 
-    /** A chunk's thaw, from its start to its end in game time. */
+    /** A chunk's thaw (or its snow forming), from its start to its end in game time. */
     public record Window(long start, long end) {
+        /** Saved in the chunk's snow record, so a thaw under way carries on after a restart. */
+        public static final Codec<Window> CODEC = RecordCodecBuilder.create(instance -> instance.group(
+                Codec.LONG.fieldOf("start").forGetter(Window::start),
+                Codec.LONG.fieldOf("end").forGetter(Window::end)
+        ).apply(instance, Window::new));
+
         public static Window startingAt(long start, long duration) {
             return new Window(start, start + duration);
+        }
+
+        /**
+         * When a chunk waiting on this window is next looked at: when it reaches the chunk's next waiting point, but no
+         * sooner than a {@link #MOST_VISITS}th of the window from now. Points are dense, so without that a chunk would
+         * wake every few ticks for a column or two.
+         */
+        public long nextVisit(double point, long now) {
+            return Math.max(tickReaching(point), now + Math.max(1L, (end - start) / MOST_VISITS));
+        }
+
+        /** The first game tick at which this window has passed a point in it ({@link #reached}). */
+        public long tickReaching(double point) {
+            if (end <= start) {
+                return start;
+            }
+            long into = (long) Math.floor(point * (end - start)) + 1;
+            return Math.min(end, start + into);
         }
 
         /** How far the thaw has got, from 0 at the start to 1 at the end. */
@@ -50,6 +88,33 @@ public final class ThawPace {
         public boolean isOver(long now) {
             return now >= end;
         }
+    }
+
+    /**
+     * The thaw a chunk with snow or ice to lose goes by, from the first of these still under way: the one saved in its
+     * record (so a restart or a reload carries on instead of starting again), the one started for it at the last
+     * change, its neighbours' earliest (so a chunk loading beside a half-melted area joins it rather than leaving a
+     * chunk-shaped seam), or else a new one starting now.
+     */
+    static Window join(@Nullable Window saved, @Nullable Window here, @Nullable Window neighbours, long now,
+                       long duration) {
+        for (Window candidate : Arrays.asList(saved, here, neighbours)) {
+            if (candidate != null && !candidate.isOver(now)) {
+                return candidate;
+            }
+        }
+        return Window.startingAt(now, duration);
+    }
+
+    /** The earliest-starting of these windows that is still under way at {@code now}, or null. */
+    static @Nullable Window earliestUnderWay(Iterable<@Nullable Window> windows, long now) {
+        Window earliest = null;
+        for (Window window : windows) {
+            if (window != null && !window.isOver(now) && (earliest == null || window.start() < earliest.start())) {
+                earliest = window;
+            }
+        }
+        return earliest;
     }
 
     /** Whether a thaw that has got this far may take the snow and ice of the column at {@code x}, {@code z}. */

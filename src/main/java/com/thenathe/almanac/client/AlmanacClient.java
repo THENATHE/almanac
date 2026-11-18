@@ -46,6 +46,9 @@ public final class AlmanacClient implements ClientModInitializer {
                 ClientClimateMap.INSTANCE.receiveTile(payload));
         ClientPlayNetworking.registerGlobalReceiver(FarClimatePayloads.Forget.TYPE, (payload, context) ->
                 ClientClimateMap.INSTANCE.receiveForget(payload));
+        ClientPlayNetworking.registerGlobalReceiver(FarClimatePayloads.SnowChanged.TYPE, (payload, context) ->
+                ClientClimateMap.INSTANCE.receiveSnowChanged(payload));
+        ClimateHooks.setClientFarSnowChanged(ClientClimateMap.INSTANCE::snowChangedTick);
         ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
             ClientClimateMap.INSTANCE.disconnected();
             ClientSeasons.disconnected();

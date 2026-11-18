@@ -1,6 +1,7 @@
 package com.thenathe.almanac;
 
 import com.thenathe.almanac.biome.SeasonRefresh;
+import com.thenathe.almanac.biome.SeasonalBiomeView;
 import com.thenathe.almanac.climate.PlayerWeather;
 import com.thenathe.almanac.climatemap.ServerClimateMap;
 import com.thenathe.almanac.config.ServerConfig;
@@ -59,6 +60,7 @@ public final class Almanac implements ModInitializer {
             PlayerWeather.forget(handler.player);
             SeasonRefresh.forget(handler.player);
             ServerClimateMap.playerLeft(handler.player);
+            ServerNetworking.playerLeft(handler.player);
         });
         ServerEntityLevelChangeEvents.AFTER_PLAYER_CHANGE_LEVEL.register((player, origin, destination) ->
                 SeasonRefresh.forget(player));
@@ -73,5 +75,6 @@ public final class Almanac implements ModInitializer {
         ServerSeasons.serverStopped();
         SnowUpdates.serverStopped();
         ServerNetworking.serverStopped();
+        SeasonalBiomeView.serverStopped();
     }
 }

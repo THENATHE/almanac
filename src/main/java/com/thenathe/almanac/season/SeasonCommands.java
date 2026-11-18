@@ -9,10 +9,12 @@ import com.thenathe.almanac.api.SubSeason;
 import com.thenathe.almanac.climatemap.ServerClimateMap;
 import com.thenathe.almanac.config.ServerConfig;
 import com.thenathe.almanac.config.ServerSetting;
+import com.thenathe.almanac.config.SettingsFile;
 import com.thenathe.almanac.network.ServerNetworking;
 import com.thenathe.almanac.snow.SnowState;
 import com.thenathe.almanac.snow.SnowUpdates;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import net.minecraft.commands.CommandSourceStack;
@@ -21,7 +23,8 @@ import net.minecraft.commands.SharedSuggestionProvider;
 import net.minecraft.network.chat.Component;
 
 /**
- * {@code /season} for everyone; {@code /season set|pause|resume|length} and {@code /almanac config} for operators
+ * {@code /season} for everyone; {@code /season set|pause|resume|length}, {@code /almanac config} (and
+ * {@code /almanac config reload}) and {@code /almanac snow} for operators
  * (level 2) and the console. Replies have English fallbacks, so players without Almanac read them too.
  */
 public final class SeasonCommands {
@@ -50,6 +53,7 @@ public final class SeasonCommands {
                 .then(Commands.literal("snow").executes(SeasonCommands::showSnow))
                 .then(Commands.literal("config")
                         .executes(SeasonCommands::listSettings)
+                        .then(Commands.literal("reload").executes(SeasonCommands::reloadSettings))
                         .then(Commands.argument("setting", StringArgumentType.word())
                                 .suggests((context, builder) -> SharedSuggestionProvider.suggest(
                                         ServerSetting.all().stream().map(ServerSetting::name), builder))
@@ -145,6 +149,38 @@ public final class SeasonCommands {
         }
         context.getSource().sendSuccess(() -> Component.literal(text.toString()), false);
         return ServerSetting.all().size();
+    }
+
+    /** Reads the settings file again, for hand edits made while the server runs. */
+    private static int reloadSettings(CommandContext<CommandSourceStack> context) {
+        CommandSourceStack source = context.getSource();
+        ServerConfig before = ServerConfig.get();
+        String file = ServerConfig.file().getFileName().toString();
+        switch (ServerConfig.readFile()) {
+            case SettingsFile.Reading.Read<ServerConfig> read -> {
+                ServerNetworking.applySettings(source.getServer(), read.settings());
+                List<String> afterRestart = ServerSetting.all().stream()
+                        .filter(setting -> setting.needsRestart() && !setting.get(before).equals(setting.get(ServerConfig.get())))
+                        .map(ServerSetting::name)
+                        .toList();
+                source.sendSuccess(() -> Component.literal("Read " + file + " again."
+                        + (afterRestart.isEmpty() ? "" : " " + String.join(", ", afterRestart) + " apply after a restart.")), true);
+                return 1;
+            }
+            case SettingsFile.Reading.Missing<ServerConfig> missing -> {
+                ServerConfig.save();
+                source.sendSuccess(() -> Component.literal("There was no " + file + "; wrote the current settings to it."), true);
+                return 1;
+            }
+            case SettingsFile.Reading.Unreadable<ServerConfig> unreadable -> {
+                ServerConfig.save();
+                String where = unreadable.setAside().map(path -> "moved it to " + path.getFileName() + ", ")
+                        .orElse("couldn't move it aside, ");
+                source.sendFailure(Component.literal("Couldn't read " + file + "; " + where
+                        + "and kept the current settings. The log has the reason."));
+                return 0;
+            }
+        }
     }
 
     private static int showSetting(CommandContext<CommandSourceStack> context) {

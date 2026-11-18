@@ -46,6 +46,8 @@ public final class ClientClimateMap implements FarClimateView {
 
     private volatile Long2ObjectOpenHashMap<Tile> tiles = new Long2ObjectOpenHashMap<>();
     private volatile FarClimatePayloads.@Nullable State state;
+    /** The game tick at which far snow last changed, as the server said; -1 until a 0.1.3 server says. */
+    private volatile long snowChangedTick = -1;
     private boolean warnedAboutTile;
 
     private ClientClimateMap() {
@@ -128,6 +130,18 @@ public final class ClientClimateMap implements FarClimateView {
         }
     }
 
+    /** Comes just before the state that brings the change, so listeners to that change read the new tick. */
+    void receiveSnowChanged(FarClimatePayloads.SnowChanged changed) {
+        snowChangedTick = changed.gameTick();
+    }
+
+    /** The game tick at which far snow last changed; empty before the server has said (or if it is older than 0.1.3). */
+    OptionalLong snowChangedTick(Level level) {
+        long tick = snowChangedTick;
+        return tick < 0 || state == null || !(level instanceof ClientLevel) || level.dimension() != Level.OVERWORLD
+                ? OptionalLong.empty() : OptionalLong.of(tick);
+    }
+
     /** How long a thaw in loaded chunks takes now, as the server last said; empty before it has. */
     OptionalLong thawTicks(Level level) {
         FarClimatePayloads.State current = state;
@@ -148,6 +162,7 @@ public final class ClientClimateMap implements FarClimateView {
     void disconnected() {
         tiles = new Long2ObjectOpenHashMap<>();
         state = null;
+        snowChangedTick = -1;
     }
 
     /** For the QA driver: how many tiles the client holds and what far terrain shows. */

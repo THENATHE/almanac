@@ -220,7 +220,7 @@ public final class KitSettingsScreen extends Screen {
                 y = addNote(note, y);
                 grouped = false;
             } else if (row instanceof Setting setting) {
-                y = addSetting(setting, y, grouped);
+                y = addSetting(setting, y, grouped, page.isReadOnly());
             } else if (row instanceof TextListSetting list) {
                 y = addList(list, y, grouped);
             }
@@ -242,7 +242,8 @@ public final class KitSettingsScreen extends Screen {
             rows.add(new ListRow(RowKind.HEADER, page.name(), y, headerH, false, List.of()));
             y += headerH;
             for (PageRow row : matches) {
-                y = row instanceof Setting setting ? addSetting(setting, y, true) : addList((TextListSetting) row, y, true);
+                y = row instanceof Setting setting ? addSetting(setting, y, true, page.isReadOnly())
+                        : addList((TextListSetting) row, y, true);
             }
         }
         return y;
@@ -288,7 +289,8 @@ public final class KitSettingsScreen extends Screen {
         return y + h;
     }
 
-    private int addSetting(Setting setting, int y, boolean grouped) {
+    /** @param readOnly shown but not changeable: the controls are inactive and there is no reset */
+    private int addSetting(Setting setting, int y, boolean grouped, boolean readOnly) {
         List<Placed> placed = new ArrayList<>();
         int controlDx = layout.controlDx();
         int controlW = layout.controlW();
@@ -311,7 +313,16 @@ public final class KitSettingsScreen extends Screen {
                 placed.add(new Placed(swatches, controlEnd - swatches.getWidth(), 1));
             }
         }
-        placed.add(new Placed(new ResetButton(look, setting, this::rebuildList), layout.resetDx(), 2));
+        if (readOnly) {
+            for (Placed control : placed) {
+                control.widget().active = false;
+                if (control.widget() instanceof NumberField field) {
+                    field.setEditable(false);
+                }
+            }
+        } else {
+            placed.add(new Placed(new ResetButton(look, setting, this::rebuildList), layout.resetDx(), 2));
+        }
         register(placed);
         rows.add(new ListRow(RowKind.SETTING, setting, y, rowH, grouped, placed));
         return y + rowH;

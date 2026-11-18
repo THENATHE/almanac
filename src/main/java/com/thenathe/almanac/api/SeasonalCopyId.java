@@ -43,9 +43,17 @@ public record SeasonalCopyId(SubSeason subSeason, String original) {
         return of(subSeason, original);
     }
 
+    /**
+     * The full ID, or for a record that doesn't make one (a null sub-season or a malformed original) a plain
+     * description, so logging a copy ID never throws.
+     */
     @Override
     public String toString() {
-        return id();
+        try {
+            return id();
+        } catch (RuntimeException notAnId) {
+            return "SeasonalCopyId[subSeason=" + subSeason + ", original=" + original + "]";
+        }
     }
 
     private static String prefixFor(SubSeason subSeason) {

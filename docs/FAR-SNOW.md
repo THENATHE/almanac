@@ -18,8 +18,7 @@ the far land show snow here right now, and from what height?".
 
 ## Who gets it
 
-- Far snow needs Almanac 0.1.2 or later on the client as well as LiteLights. In singleplayer both
-  are on the same machine.
+- Far snow needs Almanac 0.1.2 or later on the client as well as a LiteLights version that draws it (no LiteLights release does yet). In singleplayer both are on the same machine.
 - A vanilla client gets nothing new, and neither does a client with LiteLights but no Almanac, or with an older
   Almanac. The server sends the map's payloads only to clients that registered them (Fabric's `canSend`); a client
   registers them by having Almanac 0.1.2's client entrypoint.
@@ -110,6 +109,8 @@ layers, until mid spring.
 - A biome within 0.01 of 0.15 can have a gap of up to 8 blocks just above the cooling height where the noise warms it
   again; those blocks count as snowy.
 - One biome per cell (see the map below): columns near a biome border can take the neighbouring cell's answer.
+- Seasonal ice. The far rule gives snow lines only; frozen lakes and rivers far away are left as captured. Oceans never
+  get seasonal ice (0.1.3), so far oceans and near ones agree.
 
 ## The climate map (server)
 
@@ -126,16 +127,26 @@ layers, until mid spring.
   threads, so this is safe.
   - For multi-noise biome sources (vanilla's overworld, and data packs and mods built on it) the surface biome comes
     from one climate sample with the depth parameter set to the surface's (0): biome sources put surface biomes at
-    depth 0 and cave biomes below.
+    depth 0 and cave biomes below. From 0.1.3 the sample goes through the source's own `createResolver`, the entry
+    point world generation and the game's biome lookups use, so biome libraries that hook it (or the parameter list
+    behind it) show on the map; for vanilla the answer is the same as before. This is unverified against TerraBlender
+    and Biolith for 26.3 (no 26.3 build of either was at hand); Biolith 3.5 for 1.21.11 hooks the parameter list and
+    the per-position lookup, which in 26.3 is the resolver. If the resolver throws, the map falls back to looking the
+    sample up in the parameter list, and logs it once.
   - For any other biome source, the generator's height estimate (`getBaseHeight`) and the biome there.
   - Cells inside chunks that are loaded when a tile is finished take the chunk's real biome at its surface.
+- **Sharing** (0.1.3): each tick a different player's nearest missing tile is sampled first, then the next player's,
+  round-robin, so after a restart nobody waits for everyone before them in the list. A tile that fails to sample is
+  tried three times, then left out (unknown on the client), so the player's map can still finish; `/almanac snow`
+  counts tiles given up on.
 - **Server thread**: at most 4 finished tiles are packed per tick, and each player gets at most
   `farClimateBytesPerTick` of tiles per tick (4,096 bytes by default; the tile that crosses the budget still goes, and
   the next tick's budget is short by as much).
 - **Memory**: packed tiles are kept while some player wants them, plus 512 spares; at the defaults a tile is about
   92 bytes packed (241 tiles in 22 KB), so the whole cache is well under a megabyte.
 - **Turning it off** (`farClimateMap false`) tells every client to drop its tiles; their lookups answer "unknown".
-  Changing the cell size samples and sends everything again (clients replace tiles as new ones arrive).
+  Changing the cell size tells every client to drop its tiles (0.1.3; before, old tiles beyond the new ones stayed until
+  the player left the overworld), then samples and sends everything again, so far terrain refills once.
 
 ### Measurements (0.1.2)
 
@@ -211,17 +222,19 @@ sub-season, the snow depths and the rain reach.
 ## The client API
 
 Everything is static on `com.thenathe.almanac.api.AlmanacApi` (the `api` package is a stable contract from 0.1.1 on;
-these were added in 0.1.2 and nothing from 0.1.1 changed). They answer only on a client with Almanac connected to an
-Almanac server, for its overworld `ClientLevel`. On the server, in other dimensions and before anything has arrived,
-they say unknown (or empty).
+these were added in 0.1.2, `farSnowChangedTick` in 0.1.3, and nothing earlier changed). They answer only on a client
+with Almanac connected to an Almanac server, for its overworld `ClientLevel`, so fill with the overworld's level. On
+the server (except `farSnowChangedTick`), in other dimensions and before anything has arrived, they say unknown (or
+empty).
 
 | Method | Returns |
 |---|---|
 | `farSnowLine(Level, int x, int z)` | The far snow line: a block Y, `FAR_SNOW_EVERYWHERE`, `FAR_SNOW_NOWHERE` or `FAR_SNOW_UNKNOWN`. |
 | `fillFarSnowLines(Level, int originX, int originZ, int spacing, int width, int height, int[] lines)` | Fills `lines[j * width + i]` with `farSnowLine(originX + i * spacing, originZ + j * spacing)`; returns how many are known. Throws `IllegalArgumentException` if `spacing < 1`, a size is negative or `lines` is shorter than `width * height`. |
-| `seasonalGrassColour(Level, int x, int z)` | `OptionalInt`: today's seasonal grass colour (opaque ARGB, `0xFFrrggbb`) of the column's biome on the map, with the biome's grass modifier (swamp, dark forest) applied, as the client colours grass there. Empty where the line is unknown. |
+| `seasonalGrassColour(Level, int x, int z)` | `OptionalInt`: today's seasonal grass colour (opaque ARGB, `0xFFrrggbb`) of the column's biome on the map, with the biome's grass modifier (swamp, dark forest) applied, as the client colours grass there. Empty where the map has no tile there or the client doesn't know the biome. It is given even where the line is unknown (snow-block biomes while they melt). |
 | `seasonalFoliageColour(Level, int x, int z)` | `OptionalInt`: the same for foliage. |
-| `farClimate(Level, int x, int z)` | `Optional<FarClimate>`: the column's biome on the map (`Holder<Biome>`, the real biome), its base climate, its climate now (one step colder in winter, warmer in summer) and whether the current rain event reaches it. Empty where the line is unknown and for biomes without seasons. |
+| `farClimate(Level, int x, int z)` | `Optional<FarClimate>`: the column's biome on the map (`Holder<Biome>`, the real biome), its base climate, its climate now (one step colder in winter, warmer in summer) and whether the current rain event reaches it. Empty where the map has no tile there, for biomes the client doesn't know and for biomes without seasons; given where the line is unknown, as the colours are. |
+| `farSnowChangedTick(Level)` (0.1.3) | `OptionalLong`: the overworld game tick (`Level#getGameTime`) at which what far terrain shows last changed everywhere; see "How long a change takes". |
 
 `FAR_SNOW_UNKNOWN = Integer.MIN_VALUE`, `FAR_SNOW_EVERYWHERE = Integer.MIN_VALUE + 1`,
 `FAR_SNOW_NOWHERE = Integer.MAX_VALUE`. Coordinates are block coordinates; a column's answer comes from the cell
@@ -242,6 +255,14 @@ snow-forming animation when the far snow line changes, so far melts last as long
 transition starts. It counts game ticks, so `/tick rate` and `/tick sprint` speed it up like the thaw itself. Empty
 when there is no season; without it, use your own default.
 
+`AlmanacApi.farSnowChangedTick(Level)` (0.1.3, `OptionalLong`) is the overworld game tick at which that change began:
+a melt or forming animation is `(level.getGameTime() - tick) / thawTicks` of the way through, so a player who joins or
+relogs mid-melt sees it carry on rather than start again, and every player sees the same progress. It is saved with
+the season, so a server restart isn't a change. It comes from the server in its own payload, sent on joining and just
+before the state that changes it, so it is already new inside the `FAR_CLIMATE_CHANGED` listener for that change.
+Empty on servers older than 0.1.3: start the animation at the event then. Tiles arriving or being dropped don't
+change it.
+
 ### Knowing when to fill again
 
 `AlmanacEvents.FAR_CLIMATE_CHANGED` gives `(Level level, FarChange change)`. `FarChange` has the area in block
@@ -252,7 +273,7 @@ coordinates, both ends included (`minX, minZ, maxX, maxZ`), and which kinds of a
 |---|---|---|---|---|
 | A tile arrives | the tile (512 x 512) | yes | yes | yes |
 | A tile is dropped (player moved away) | the tile | yes | yes | yes |
-| All tiles dropped (left the overworld) | everywhere | yes | yes | yes |
+| All tiles dropped (left the overworld, or the cell size changed) | everywhere | yes | yes | yes |
 | The shown state changes (new sub-season, snow appearing or going in a climate, the native snow setting) | everywhere | yes | no | no |
 | The map is turned on or off | everywhere | yes | yes | yes |
 | The day's colours change visibly | everywhere | no | yes | no |
@@ -260,7 +281,14 @@ coordinates, both ends included (`minX, minZ, maxX, maxZ`), and which kinds of a
 
 - Always on the client thread, with the client's level, after the change is applied: lookups inside the listener
   already give the new answers.
-- Never on the server; nothing fires on disconnecting (every answer becomes unknown then).
+- Never on the server; nothing fires on disconnecting (every answer becomes unknown then), so clear far-snow state
+  on leaving a world.
 - Joining fires one event per tile as the map arrives (241 at the defaults, over the first few seconds),
   so coalesce: mark the changed area and fill once per frame.
+- **Telling a season change from map data arriving**: only the row "the shown state changes" (everywhere, `snowLines`
+  alone) is the far land itself changing, the one to animate over `thawTicks`. Every other kind (tiles arriving or
+  dropped, the map switched on or off, colours, climate) is the map filling in or a separate kind of answer, and
+  should show at once.
+- The level passed is the client's current one, which can be the Nether or the End, where every answer is unknown:
+  look up with the overworld's level when the player is back.
 - `AlmanacEvents.SEASON_CHANGED` still fires as before; far-terrain users need only `FAR_CLIMATE_CHANGED`.

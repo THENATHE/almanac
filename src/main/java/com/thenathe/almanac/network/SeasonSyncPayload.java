@@ -4,6 +4,7 @@ import com.thenathe.almanac.Almanac;
 import com.thenathe.almanac.api.AlmanacEvents;
 import com.thenathe.almanac.api.Climate;
 import com.thenathe.almanac.api.SubSeason;
+import com.thenathe.almanac.config.ServerConfig;
 import java.util.EnumMap;
 import java.util.EnumSet;
 import java.util.Map;
@@ -48,7 +49,9 @@ public record SeasonSyncPayload(SubSeason subSeason, int dayOfYear, int daysPerS
                 int format = buffer.readVarInt();
                 SubSeason subSeason = SubSeason.byIndex(buffer.readVarInt());
                 int dayOfYear = buffer.readVarInt();
-                int daysPerSeason = buffer.readVarInt();
+                // A broken server could send 0, which the client divides by.
+                int daysPerSeason = Math.clamp(buffer.readVarInt(), ServerConfig.MIN_DAYS_PER_SEASON,
+                        ServerConfig.MAX_DAYS_PER_SEASON);
                 boolean paused = buffer.readBoolean();
                 int mask = buffer.readVarInt();
                 Set<Climate> reached = EnumSet.noneOf(Climate.class);
@@ -64,6 +67,7 @@ public record SeasonSyncPayload(SubSeason subSeason, int dayOfYear, int daysPerS
                         snow.put(climate, buffer.readVarInt());
                     }
                 }
+                PayloadFormat.skipNewerFields(buffer);
                 return new SeasonSyncPayload(subSeason, dayOfYear, daysPerSeason, paused, reached, rainEvent, snow);
             });
 

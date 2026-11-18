@@ -80,7 +80,10 @@ public final class SnowTracking {
         chunk.markUnsaved();
     }
 
-    /** A player placed a block. Snow they place is theirs and never melts; anything else replaces what was recorded. */
+    /**
+     * A player placed a block. Snow they place is theirs and never melts; anything else replaces what was recorded.
+     * The season's ice under whatever they place is theirs too, so an ice-fishing hut keeps its floor in spring.
+     */
     public static void playerPlaced(Level level, BlockPos pos, BlockState placed) {
         if (!tracks(level)) {
             return;
@@ -95,6 +98,7 @@ public final class SnowTracking {
         int key = ChunkSnow.pack(pos);
         record.forget(key);
         record.setPlayerSnow(key, snow);
+        record.setModIce(ChunkSnow.pack(pos.below()), false);
         chunk.markUnsaved();
     }
 

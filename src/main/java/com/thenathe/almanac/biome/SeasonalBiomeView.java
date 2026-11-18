@@ -8,6 +8,7 @@ import java.util.IdentityHashMap;
 import java.util.Map;
 import java.util.function.Supplier;
 import net.minecraft.core.Holder;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.Level;
@@ -22,19 +23,29 @@ import org.jspecify.annotations.Nullable;
  * <p>Chunk and biome packets are built one player at a time on the server thread, and they serialise the chunk as
  * they are built. While one is built for such a player, this view is active on the thread and each section's
  * biomes are swapped for a rewritten container; the chunk itself is never touched, so nothing saved can contain a
- * copy. Every section is rewritten once per packet, since the packet reads it twice (to size and to write it).
+ * copy. Every section is rewritten once per packet, since the packet reads it twice (to size and to write it), and
+ * on the server thread once per tick for all players ({@link SharedRewrites}), since they all get the same copies.
  */
 public final class SeasonalBiomeView {
     private static final ThreadLocal<@Nullable SeasonalBiomeView> ACTIVE = new ThreadLocal<>();
     private static final int BIOMES_PER_SIDE = 4;
+    /** Only touched on the server thread. */
+    private static final SharedRewrites<PalettedContainerRO<Holder<Biome>>, PalettedContainerRO<Holder<Biome>>> SHARED =
+            new SharedRewrites<>();
 
     private final SeasonalBiomeIndex index;
     private final SubSeason subSeason;
-    private final Map<PalettedContainerRO<Holder<Biome>>, PalettedContainerRO<Holder<Biome>>> rewritten = new IdentityHashMap<>();
+    private final Map<PalettedContainerRO<Holder<Biome>>, PalettedContainerRO<Holder<Biome>>> rewritten;
 
-    private SeasonalBiomeView(SeasonalBiomeIndex index, SubSeason subSeason) {
+    private SeasonalBiomeView(SeasonalBiomeIndex index, SubSeason subSeason,
+                              Map<PalettedContainerRO<Holder<Biome>>, PalettedContainerRO<Holder<Biome>>> rewritten) {
         this.index = index;
         this.subSeason = subSeason;
+        this.rewritten = rewritten;
+    }
+
+    /** The two things a rewrite depends on. */
+    private record Season(SeasonalBiomeIndex index, SubSeason subSeason) {
     }
 
     /** Builds a packet for {@code player}, in seasonal biomes if the player gets the copies. */
@@ -43,12 +54,22 @@ public final class SeasonalBiomeView {
         if (seasons == null || !getsCopies(player, level) || seasons.index().isEmpty() || ACTIVE.get() != null) {
             return packet.get();
         }
-        ACTIVE.set(new SeasonalBiomeView(seasons.index(), seasons.subSeason()));
+        MinecraftServer server = level.getServer();
+        // Packets built on any other thread (a mod's own sender, say) keep their rewrites to themselves.
+        Map<PalettedContainerRO<Holder<Biome>>, PalettedContainerRO<Holder<Biome>>> rewritten = server.isSameThread()
+                ? SHARED.forTick(server.getTickCount(), new Season(seasons.index(), seasons.subSeason()))
+                : new IdentityHashMap<>();
+        ACTIVE.set(new SeasonalBiomeView(seasons.index(), seasons.subSeason(), rewritten));
         try {
             return packet.get();
         } finally {
             ACTIVE.remove();
         }
+    }
+
+    /** Lets go of the shared rewrites when the server stops. */
+    public static void serverStopped() {
+        SHARED.clear();
     }
 
     /** Players without Almanac in the overworld, while the copies are switched on. */

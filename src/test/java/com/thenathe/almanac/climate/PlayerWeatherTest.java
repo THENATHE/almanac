@@ -39,6 +39,21 @@ class PlayerWeatherTest {
     }
 
     @Test
+    void thunderGoesOutPlainSoTheClientScalesItOnce() {
+        // Half way into a storm, for a player whose share is full and for one walking out of it.
+        for (float reach : new float[] {1.0F, 0.5F, 0.0F}) {
+            float worldRain = 0.5F;
+            float plainThunder = 1.0F;
+            PlayerWeather.Levels sent = PlayerWeather.levelsFor(worldRain, plainThunder, reach);
+            assertEquals(worldRain * reach, sent.rain(), 1e-6F);
+            assertEquals(plainThunder, sent.thunder(), 1e-6F, "as vanilla sends it");
+            // The client's Level#getThunderLevel multiplies by its own rain level: the world's storm times the share.
+            float shownThunder = sent.thunder() * sent.rain();
+            assertEquals(worldRain * plainThunder * reach, shownThunder, 1e-6F, "share " + reach);
+        }
+    }
+
+    @Test
     void worldWeatherComesBackFromTheNetwork() {
         RegistryFriendlyByteBuf buffer = new RegistryFriendlyByteBuf(Unpooled.buffer(), RegistryAccess.EMPTY);
         WorldWeatherPayload.CODEC.encode(buffer, new WorldWeatherPayload(0.25F, 1.0F));

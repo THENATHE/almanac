@@ -5,6 +5,7 @@ import com.thenathe.almanac.api.Climate;
 import com.thenathe.almanac.api.SubSeason;
 import com.thenathe.almanac.climatemap.ClimateTile;
 import java.util.Arrays;
+import java.util.Objects;
 import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.VarInt;
 import net.minecraft.network.codec.StreamCodec;
@@ -56,7 +57,9 @@ public final class FarClimatePayloads {
                     }
                     boolean nativeSnowMelts = buffer.readBoolean();
                     int naturalHeight = buffer.readVarInt();
-                    return new State(enabled, subSeason, layers, nativeSnowMelts, naturalHeight, Math.max(0L, buffer.readVarLong()));
+                    long thawTicks = Math.max(0L, buffer.readVarLong());
+                    PayloadFormat.skipNewerFields(buffer);
+                    return new State(enabled, subSeason, layers, nativeSnowMelts, naturalHeight, thawTicks);
                 });
 
         public State {
@@ -84,6 +87,14 @@ public final class FarClimatePayloads {
             return 31 * shownSubSeason.hashCode() + Arrays.hashCode(layers);
         }
 
+        /**
+         * A number for what {@link #sameFarSnow} compares, the same on every run (unlike {@link #hashCode}), so it
+         * can be saved to tell whether far snow changed while the server was off.
+         */
+        public int farSnowFingerprint() {
+            return Objects.hash(enabled, shownSubSeason.ordinal(), Arrays.hashCode(layers), nativeSnowMelts, naturalHeight);
+        }
+
         @Override
         public Type<State> type() {
             return TYPE;
@@ -104,8 +115,10 @@ public final class FarClimatePayloads {
                 },
                 buffer -> {
                     buffer.readVarInt();
-                    return new Tile(buffer.readInt(), buffer.readInt(), buffer.readByte(),
+                    Tile tile = new Tile(buffer.readInt(), buffer.readInt(), buffer.readByte(),
                             buffer.readVarIntArray(ClimateTile.MAX_PALETTE), buffer.readByteArray(MAX_PACKED_BYTES));
+                    PayloadFormat.skipNewerFields(buffer);
+                    return tile;
                 });
 
         public static Tile of(ClimateTile tile) {
@@ -136,7 +149,36 @@ public final class FarClimatePayloads {
         }
     }
 
-    /** Tiles the client may drop, because the player has moved away from them; {@code all} drops every tile. */
+    /**
+     * From Almanac 0.1.3, to clients that register it: the overworld game tick ({@code Level#getGameTime}) at which
+     * what far terrain shows ({@link State#sameFarSnow}) last changed. Sent on joining and just before each
+     * {@link State} that changes it, so a far-terrain melt or snow-forming animation can resume part way through
+     * instead of starting again. It is saved with the season, so a server restart isn't a change.
+     */
+    public record SnowChanged(long gameTick) implements CustomPacketPayload {
+        public static final Type<SnowChanged> TYPE = new Type<>(Identifier.fromNamespaceAndPath(Almanac.MOD_ID, "far_snow_changed"));
+        public static final StreamCodec<RegistryFriendlyByteBuf, SnowChanged> CODEC = StreamCodec.of(
+                (buffer, changed) -> {
+                    buffer.writeVarInt(FORMAT);
+                    buffer.writeVarLong(changed.gameTick());
+                },
+                buffer -> {
+                    buffer.readVarInt();
+                    long gameTick = Math.max(0L, buffer.readVarLong());
+                    PayloadFormat.skipNewerFields(buffer);
+                    return new SnowChanged(gameTick);
+                });
+
+        @Override
+        public Type<SnowChanged> type() {
+            return TYPE;
+        }
+    }
+
+    /**
+     * Tiles the client may drop, because the player has moved away from them; {@code all} drops every tile (on
+     * leaving the overworld, and when the map starts again with another cell size).
+     */
     public record Forget(boolean all, long[] tiles) implements CustomPacketPayload {
         public static final Type<Forget> TYPE = new Type<>(Identifier.fromNamespaceAndPath(Almanac.MOD_ID, "far_climate_forget"));
         public static final StreamCodec<RegistryFriendlyByteBuf, Forget> CODEC = StreamCodec.of(
@@ -159,6 +201,7 @@ public final class FarClimatePayloads {
                     for (int index = 0; index < count; index++) {
                         tiles[index] = buffer.readLong();
                     }
+                    PayloadFormat.skipNewerFields(buffer);
                     return new Forget(all, tiles);
                 });
 

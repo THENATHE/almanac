@@ -4,6 +4,7 @@ import com.thenathe.almanac.Almanac;
 import com.thenathe.almanac.api.Climate;
 import com.thenathe.almanac.api.SubSeason;
 import com.thenathe.almanac.biome.SeasonRefresh;
+import com.thenathe.almanac.biome.SeasonalBiomeRegistration;
 import com.thenathe.almanac.biome.SeasonalBiomeIndex;
 import com.thenathe.almanac.climate.EventReach;
 import com.thenathe.almanac.climate.SeasonalClimate;
@@ -19,11 +20,13 @@ import java.util.EnumSet;
 import java.util.Map;
 import java.util.OptionalLong;
 import java.util.Set;
+import net.minecraft.core.Registry;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.level.biome.Biome;
 import net.minecraft.world.level.gamerules.GameRules;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
@@ -35,7 +38,6 @@ import org.slf4j.LoggerFactory;
  */
 public final class ServerSeasons {
     private static final Logger LOGGER = LoggerFactory.getLogger(Almanac.MOD_ID);
-    private static final long TICKS_PER_DAY = 24000L;
     private static @Nullable ServerSeasons current;
 
     private final MinecraftServer server;
@@ -45,6 +47,8 @@ public final class ServerSeasons {
     private SeasonalClimate climate;
     private SnowState snowState;
     private final Map<Climate, Double> snowDepths = new EnumMap<>(Climate.class);
+    /** The climate settings the seasonal copies were built with; see {@link SnowState#climateSettings}. */
+    private final int climateSettings = SeasonalBiomeRegistration.copyClimate().fingerprint();
     private boolean announcedStart;
 
     private ServerSeasons(MinecraftServer server, SeasonData data, SeasonalBiomeIndex index, SnowData snow) {
@@ -56,11 +60,14 @@ public final class ServerSeasons {
         for (Climate each : Climate.values()) {
             snowDepths.put(each, 0.0);
         }
-        this.snowState = new SnowState(subSeason(), Map.of(), ServerConfig.get().nativeSnowMeltsInSummer, 1);
+        this.snowState = new SnowState(subSeason(), Map.of(), ServerConfig.get().nativeSnowMeltsInSummer, 1,
+                climateSettings);
     }
 
     public static void serverStarted(MinecraftServer server) {
-        SeasonalBiomeIndex index = SeasonalBiomeIndex.build(server.registryAccess().lookupOrThrow(Registries.BIOME));
+        Registry<Biome> biomes = server.registryAccess().lookupOrThrow(Registries.BIOME);
+        SeasonalBiomeRegistration.checkCopiesUnchanged(biomes);
+        SeasonalBiomeIndex index = SeasonalBiomeIndex.build(biomes);
         SeasonData data = server.overworld().getDataStorage().computeIfAbsent(SeasonData.TYPE);
         SnowData snow = server.overworld().getDataStorage().computeIfAbsent(SnowData.TYPE);
         ServerSeasons seasons = new ServerSeasons(server, data, index, snow);
@@ -146,26 +153,20 @@ public final class ServerSeasons {
         return layers;
     }
 
+    /** The game tick at which far terrain began to show what it shows now; see {@link SeasonData#farSnowChanged}. */
+    public long farSnowChanged(int shown, long gameTime) {
+        return data.farSnowChanged(shown, gameTime);
+    }
+
     public void tick() {
         ServerLevel overworld = server.overworld();
         ServerConfig config = ServerConfig.get();
         SubSeason before = climate.subSeason();
 
-        if (data.daysPerSeason() != config.daysPerSeason) {
-            data.setDay(SeasonClock.resize(data.dayOfYear(), data.daysPerSeason(), config.daysPerSeason), config.daysPerSeason);
-        }
-        long clockDay = Math.floorDiv(overworld.getOverworldClockTime(), TICKS_PER_DAY);
-        if (data.lastClockDay() == SeasonData.NOT_STARTED) {
-            data.setDay(SeasonClock.startOf(config.startSubSeason(), config.daysPerSeason), config.daysPerSeason);
-            data.setLastClockDay(clockDay);
-        } else if (clockDay != data.lastClockDay()) {
-            // Setting the time back doesn't turn the year back; it only moves where the next day starts.
-            if (clockDay > data.lastClockDay() && !config.paused) {
-                data.setDay(SeasonClock.advance(data.dayOfYear(), clockDay - data.lastClockDay(), data.daysPerSeason()),
-                        data.daysPerSeason());
-            }
-            data.setLastClockDay(clockDay);
-        }
+        SeasonClock.Reading saved = data.clock();
+        boolean firstStart = !saved.started();
+        data.setClock(SeasonClock.step(saved, overworld.getOverworldClockTime(), config.daysPerSeason,
+                config.startSubSeason(), config.paused));
         data.setRaining(overworld.getWeatherData().isRaining());
 
         SubSeason now = subSeason();
@@ -175,7 +176,8 @@ public final class ServerSeasons {
         }
         updateSnow(overworld, config, now, reached);
         if (SnowRules.isThawTime(now) && (!SnowRules.isThawTime(before) || data.thawStartSnow().isEmpty())) {
-            data.setThawStartSnow(thawStartDepths(overworld, !SnowRules.isThawTime(before)));
+            // A new world (or one new to Almanac) has had no snow yet, so thaw time begins with the snow there is now.
+            data.setThawStartSnow(thawStartDepths(overworld, firstStart || !SnowRules.isThawTime(before)));
         }
         if (now != before && announcedStart) {
             subSeasonChanged(now, config);
@@ -204,7 +206,7 @@ public final class ServerSeasons {
             snowDepths.put(each, depth);
             layers.put(each, SnowLog.layers(depth, snowHeight));
         }
-        snowState = new SnowState(subSeason, layers, config.nativeSnowMeltsInSummer, snowHeight);
+        snowState = new SnowState(subSeason, layers, config.nativeSnowMeltsInSummer, snowHeight, climateSettings);
     }
 
     /**
@@ -223,8 +225,8 @@ public final class ServerSeasons {
         for (Climate each : Climate.values()) {
             depths.put(each, began.isPresent() ? log.depth(each, began.getAsLong(), snowHeight) : snowDepths.get(each));
         }
-        LOGGER.info("Almanac: this world has no saved snow from the start of {}; using {} ({})", subSeason().id(), depths,
-                began.isPresent() ? "from the weather log" : "the snow now");
+        LOGGER.info("Almanac: this world, saved by an Almanac older than 0.1.2, has no snow depths from the start of {}; "
+                + "using {} ({})", subSeason().id(), depths, began.isPresent() ? "from the weather log" : "the snow now");
         return depths;
     }
 

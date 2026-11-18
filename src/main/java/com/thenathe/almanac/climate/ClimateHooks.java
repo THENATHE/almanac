@@ -2,6 +2,7 @@ package com.thenathe.almanac.climate;
 
 import com.thenathe.almanac.api.Climate;
 import com.thenathe.almanac.climatemap.FarClimateView;
+import com.thenathe.almanac.climatemap.ServerClimateMap;
 import com.thenathe.almanac.network.WorldWeatherPayload;
 import com.thenathe.almanac.season.ServerSeasons;
 import java.util.OptionalDouble;
@@ -23,6 +24,7 @@ public final class ClimateHooks {
     private static volatile FarClimateView farClimate = FarClimateView.NOTHING_KNOWN;
     private static volatile Function<Level, @Nullable WorldWeatherPayload> clientWorldWeather = level -> null;
     private static volatile Function<Level, OptionalLong> clientThawTicks = level -> OptionalLong.empty();
+    private static volatile Function<Level, OptionalLong> clientFarSnowChanged = level -> OptionalLong.empty();
 
     private ClimateHooks() {
     }
@@ -103,5 +105,23 @@ public final class ClimateHooks {
     /** Set once by the client entrypoint. */
     public static void setClientThawTicks(Function<Level, OptionalLong> source) {
         clientThawTicks = source;
+    }
+
+    /** The game tick at which what far terrain shows last changed; on a client, as last synced. */
+    public static OptionalLong farSnowChangedTick(Level level) {
+        if (forLevel(level) == null) {
+            return OptionalLong.empty();
+        }
+        if (level instanceof ServerLevel) {
+            ServerClimateMap map = ServerClimateMap.get();
+            long tick = map == null ? -1 : map.snowChangedTick();
+            return tick < 0 ? OptionalLong.empty() : OptionalLong.of(tick);
+        }
+        return clientFarSnowChanged.apply(level);
+    }
+
+    /** Set once by the client entrypoint. */
+    public static void setClientFarSnowChanged(Function<Level, OptionalLong> source) {
+        clientFarSnowChanged = source;
     }
 }

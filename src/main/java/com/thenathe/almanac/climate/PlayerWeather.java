@@ -1,6 +1,7 @@
 package com.thenathe.almanac.climate;
 
 import com.thenathe.almanac.biome.SeasonalBiomeIndex;
+import com.thenathe.almanac.mixin.LevelWeatherAccessor;
 import com.thenathe.almanac.network.WorldWeatherPayload;
 import java.util.HashMap;
 import java.util.Locale;
@@ -24,7 +25,10 @@ import net.minecraft.world.level.biome.Biome;
  *   badlands outside winter, temperate land in mid summer), all of it. The sky darkens as in plain Minecraft and
  *   nothing falls, which mods such as LiteLights draw as a sandstorm (user, 2026-11-17).</li>
  * </ul>
- * Clients with Almanac 0.1.2 or later are also sent the dimension's own levels ({@link WorldWeatherPayload}).
+ * The thunder level goes out plain, as vanilla sends it: the client multiplies it by the rain level it was given, so
+ * the player's storm darkness is the world's thunder times their share, fading with it.
+ *
+ * <p>Clients with Almanac 0.1.2 or later are also sent the dimension's own levels ({@link WorldWeatherPayload}).
  */
 public final class PlayerWeather {
     /** Vanilla fades rain in and out by 0.01 a tick. */
@@ -69,8 +73,9 @@ public final class PlayerWeather {
             float target = shareWhereStanding(climate, overworld, player);
             State state = STATES.computeIfAbsent(player.getUUID(), id -> new State(target));
             state.reach += Math.clamp(target - state.reach, -FADE_PER_TICK, FADE_PER_TICK);
-            float rain = overworld.getRainLevel(1.0F) * state.reach;
-            float thunder = overworld.getThunderLevel(1.0F) * state.reach;
+            Levels levels = levelsFor(overworld.getRainLevel(1.0F), plainThunder(overworld), state.reach);
+            float rain = levels.rain();
+            float thunder = levels.thunder();
             if (rain != state.sentRain) {
                 player.connection.send(new ClientboundGameEventPacket(ClientboundGameEventPacket.RAIN_LEVEL_CHANGE, rain));
                 state.sentRain = rain;
@@ -88,7 +93,7 @@ public final class PlayerWeather {
     }
 
     public static float thunderFor(ServerPlayer player, ServerLevel level) {
-        return level.getThunderLevel(1.0F) * startingReach(player, level);
+        return levelsFor(level.getRainLevel(1.0F), plainThunder(level), startingReach(player, level)).thunder();
     }
 
     private static float startingReach(ServerPlayer player, ServerLevel level) {
@@ -97,14 +102,18 @@ public final class PlayerWeather {
             return 1.0F;
         }
         float reach = shareWhereStanding(climate, level, player);
+        Levels levels = levelsFor(level.getRainLevel(1.0F), plainThunder(level), reach);
         State state = new State(reach);
-        state.sentRain = level.getRainLevel(1.0F) * reach;
-        state.sentThunder = level.getThunderLevel(1.0F) * reach;
+        state.sentRain = levels.rain();
+        state.sentThunder = levels.thunder();
         STATES.put(player.getUUID(), state);
         return reach;
     }
 
-    /** Vanilla's start and stop events reset a client's rain level, so every player is sent theirs again. */
+    /**
+     * Vanilla's start and stop events, from any dimension with weather, go to every player and reset their rain
+     * level, so every player is sent theirs again.
+     */
     public static void resendAll() {
         for (State state : STATES.values()) {
             state.sentRain = -1.0F;
@@ -138,6 +147,22 @@ public final class PlayerWeather {
             return 1.0F;
         }
         return share(entry.copy(climate.subSeason()).value().hasPrecipitation(), climate.reaches(biome));
+    }
+
+    /**
+     * The levels to send a player: their share of the rain, and the plain thunder level, which their client multiplies
+     * by that rain level. Shown on the client, the storm is then {@code worldRain * plainThunder * reach}, the world's
+     * thunder ({@link ServerLevel#getThunderLevel}) times the player's share, as vanilla shows it at a share of 1.
+     */
+    static Levels levelsFor(float worldRain, float plainThunder, float reach) {
+        return new Levels(worldRain * reach, plainThunder);
+    }
+
+    record Levels(float rain, float thunder) {
+    }
+
+    private static float plainThunder(ServerLevel level) {
+        return ((LevelWeatherAccessor) level).almanac$thunderLevel();
     }
 
     /**

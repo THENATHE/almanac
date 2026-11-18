@@ -31,6 +31,14 @@ class SeasonalCopyIdTest {
     }
 
     @Test
+    void describingABrokenRecordNeverThrows() {
+        assertEquals("almanac:mid_winter/minecraft/plains", new SeasonalCopyId(SubSeason.MID_WINTER, "minecraft:plains").toString());
+        assertEquals("SeasonalCopyId[subSeason=MID_WINTER, original=plains]",
+                new SeasonalCopyId(SubSeason.MID_WINTER, "plains").toString());
+        assertEquals("SeasonalCopyId[subSeason=null, original=null]", new SeasonalCopyId(null, null).toString());
+    }
+
+    @Test
     void anythingElseIsNotACopy() {
         for (String id : new String[] {"minecraft:plains", "almanac:plains", "almanac:monsoon/minecraft/plains",
                 "almanac:mid_winter/minecraft", "almanac:mid_winter//plains", "almanac:mid_winter/Minecraft/plains",

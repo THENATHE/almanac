@@ -8,6 +8,7 @@
         "ChunkMapMixin",
         "LevelChunkSectionMixin",
         "LevelMixin",
+        "LevelWeatherAccessor",
         "MappedRegistryAccessor",
         "PlayerChunkSenderMixin",
         "PlayerListMixin",
@@ -15,7 +16,9 @@
         "ResourceArgumentMixin",
         "ResourceManagerRegistryLoadTaskMixin",
         "ResourceOrTagArgumentMixin",
-        "ServerLevelMixin"
+        "ServerCommonPacketListenerImplMixin",
+        "ServerLevelMixin",
+        "TagLoaderMixin"
     ],
     "injectors": {
         "defaultRequire": 1

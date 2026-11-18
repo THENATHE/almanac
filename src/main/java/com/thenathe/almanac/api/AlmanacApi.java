@@ -23,14 +23,30 @@ import net.minecraft.world.level.biome.Biome;
  * <p>The far-terrain lookups ({@link #farSnowLine} and the rest, from 0.1.2) are different: they answer only on a
  * client with Almanac, from the climate map the server sends it, and are documented in {@code docs/FAR-SNOW.md}.
  *
- * <p>This package is a stable contract from Almanac 0.1.1 on.
+ * <p>Server calls belong on the server thread. On a client every call is safe from any thread (from 0.1.3; before
+ * that, the season lookups were meant for the client thread).
+ *
+ * <p>This package is a stable contract from Almanac 0.1.1 on: releases only add to it, and constants never change.
+ * Calls added later say since when; {@code docs/INTEGRATION.md} shows how to check the installed version.
  */
 public final class AlmanacApi {
-    /** {@link #farSnowLine}: nothing is known about the column yet; leave far terrain there as it was captured. */
+    /**
+     * {@link #farSnowLine}: nothing is known about the column yet; leave far terrain there as it was captured.
+     *
+     * @since 0.1.2
+     */
     public static final int FAR_SNOW_UNKNOWN = Integer.MIN_VALUE;
-    /** {@link #farSnowLine}: snow lies at every height in the column. */
+    /**
+     * {@link #farSnowLine}: snow lies at every height in the column.
+     *
+     * @since 0.1.2
+     */
     public static final int FAR_SNOW_EVERYWHERE = Integer.MIN_VALUE + 1;
-    /** {@link #farSnowLine}: snow lies at no height in the column. */
+    /**
+     * {@link #farSnowLine}: snow lies at no height in the column.
+     *
+     * @since 0.1.2
+     */
     public static final int FAR_SNOW_NOWHERE = Integer.MAX_VALUE;
 
     private AlmanacApi() {
@@ -48,6 +64,8 @@ public final class AlmanacApi {
     /**
      * {@link #climateAt} for a biome the caller already has, for example from its own sampling grid, without looking
      * the biome up again. A seasonal copy counts as the real biome behind it. Empty for biomes without seasons.
+     *
+     * @since 0.1.2
      */
     public static Optional<ClimateAt> climateOf(Level level, Holder<Biome> biome) {
         SeasonalClimate climate = ClimateHooks.forLevel(level);
@@ -72,11 +90,23 @@ public final class AlmanacApi {
      * knows its own climate, not the season's.
      */
     public static Optional<Biome.Precipitation> precipitationAt(Level level, BlockPos pos) {
+        return precipitationOf(level, level.getBiome(pos), pos);
+    }
+
+    /**
+     * {@link #precipitationAt} for a biome the caller already has, for example from its own sampling grid, so the
+     * two can't drift apart: what falls at {@code pos} in that biome during the current rain event this sub-season,
+     * {@code NONE} where the event doesn't reach its climate. The position still counts for the height (snow above
+     * the snow line). A seasonal copy counts as the real biome behind it. Empty when there is no season here.
+     *
+     * @since 0.1.3
+     */
+    public static Optional<Biome.Precipitation> precipitationOf(Level level, Holder<Biome> biome, BlockPos pos) {
         SeasonalClimate climate = ClimateHooks.forLevel(level);
         if (climate == null) {
             return Optional.empty();
         }
-        return Optional.of(climate.precipitationAt(level.getBiome(pos).value(), pos, level.getSeaLevel()));
+        return Optional.of(climate.precipitationAt(originalBiome(level, biome).value(), pos, level.getSeaLevel()));
     }
 
     /**
@@ -92,6 +122,8 @@ public final class AlmanacApi {
      * {@link #seasonalBiome(Level, BlockPos)} for a biome the caller already has: the current sub-season's copy of
      * it, or the biome itself if it has no copies. A seasonal copy is first turned back into its real biome, so any
      * copy gives the current sub-season's. Empty only when there is no season here.
+     *
+     * @since 0.1.2
      */
     public static Optional<Holder<Biome>> seasonalBiome(Level level, Holder<Biome> biome) {
         SeasonalClimate climate = ClimateHooks.forLevel(level);
@@ -152,9 +184,29 @@ public final class AlmanacApi {
      *
      * <p>On the server, and on a client with Almanac 0.1.2 or later connected to an Almanac server (it comes with the
      * far-terrain state, on joining and whenever it changes). Empty when there is no season, as for the other calls.
+     *
+     * @since 0.1.2
      */
     public static OptionalLong thawTicks(Level level) {
         return ClimateHooks.thawTicks(level);
+    }
+
+    /**
+     * The game tick ({@link Level#getGameTime} of the overworld) at which what far terrain shows last changed
+     * everywhere: a new shown sub-season, snow appearing or going in a climate, the native snow setting, or the climate
+     * map turned on or off. Those are the changes {@link AlmanacEvents#FAR_CLIMATE_CHANGED} reports everywhere with
+     * only {@code snowLines} set. With {@link #thawTicks} it says how far through its melt or snow forming the far
+     * land is, so an animation can resume part way, for example for a player who joins mid-melt. Tiles arriving or
+     * being dropped don't change it, and a server restart doesn't either (it is saved with the season).
+     *
+     * <p>On the server, and on a client with Almanac 0.1.3 or later connected to an Almanac 0.1.3 server, where it
+     * arrives before the change's event fires, so the listener reads the new tick. Empty elsewhere, outside the
+     * overworld, and on older servers: start the animation from the moment of the event then.
+     *
+     * @since 0.1.3
+     */
+    public static OptionalLong farSnowChangedTick(Level level) {
+        return ClimateHooks.farSnowChangedTick(level);
     }
 
     /**
@@ -164,14 +216,22 @@ public final class AlmanacApi {
      * (deserts and badlands outside winter), where the sky darkens with nothing falling. Use this for how strong the
      * weather is everywhere, for example a sandstorm's strength.
      *
-     * <p>On the server and on a client with Almanac 0.1.2 or later connected to an Almanac server; elsewhere it is the
-     * level's own rain level, which is the same thing there.
+     * <p>On the server and on a client with Almanac 0.1.2 or later connected to an Almanac 0.1.2 or later server.
+     * Elsewhere it is the level's own rain level: the same thing without Almanac on the server, but the player's share
+     * on an Almanac 0.1.1 server, which doesn't send the world's levels.
+     *
+     * @since 0.1.2
      */
     public static float worldRainLevel(Level level) {
         return ClimateHooks.worldWeather(level, false);
     }
 
-    /** The dimension's own thunder level, from 0 to 1; see {@link #worldRainLevel}. */
+    /**
+     * The dimension's own thunder level, from 0 to 1; see {@link #worldRainLevel}. A player's
+     * {@link Level#getThunderLevel} on a client is this times their share (from Almanac 0.1.3 on the server).
+     *
+     * @since 0.1.2
+     */
     public static float worldThunderLevel(Level level) {
         return ClimateHooks.worldWeather(level, true);
     }
@@ -193,6 +253,7 @@ public final class AlmanacApi {
      * from any thread; {@link AlmanacEvents#FAR_CLIMATE_CHANGED} says when answers change.
      *
      * @return a block Y, or {@link #FAR_SNOW_EVERYWHERE}, {@link #FAR_SNOW_NOWHERE} or {@link #FAR_SNOW_UNKNOWN}
+     * @since 0.1.2
      */
     public static int farSnowLine(Level level, int x, int z) {
         return ClimateHooks.farClimate().snowLine(level, x, z);
@@ -206,6 +267,7 @@ public final class AlmanacApi {
      * @param spacing blocks between neighbouring columns, 1 or more
      * @return how many of the lines are known (not {@link #FAR_SNOW_UNKNOWN})
      * @throws IllegalArgumentException if the spacing or a size is out of range, or {@code lines} is too short
+     * @since 0.1.2
      */
     public static int fillFarSnowLines(Level level, int originX, int originZ, int spacing, int width, int height,
                                        int[] lines) {
@@ -218,21 +280,31 @@ public final class AlmanacApi {
 
     /**
      * The seasonal grass colour (opaque ARGB) of a column from the climate map, as a client with Almanac colours grass
-     * there today: for far terrain whose captured snow should go, or to tint far grass to the season. Empty where
-     * {@link #farSnowLine} is unknown.
+     * there today: for far terrain whose captured snow should go, or to tint far grass to the season. Empty where the
+     * climate map has no tile for the column or the client doesn't know its biome; given even where
+     * {@link #farSnowLine} is unknown because the biome's ground decides (snow-block biomes while they melt).
+     *
+     * @since 0.1.2
      */
     public static OptionalInt seasonalGrassColour(Level level, int x, int z) {
         return ClimateHooks.farClimate().grassColour(level, x, z);
     }
 
-    /** The seasonal foliage colour (opaque ARGB) of a column from the climate map; see {@link #seasonalGrassColour}. */
+    /**
+     * The seasonal foliage colour (opaque ARGB) of a column from the climate map; see {@link #seasonalGrassColour}.
+     *
+     * @since 0.1.2
+     */
     public static OptionalInt seasonalFoliageColour(Level level, int x, int z) {
         return ClimateHooks.farClimate().foliageColour(level, x, z);
     }
 
     /**
      * The biome of a column on the climate map and its climate now, for haze, sandstorms and debug views. Empty where
-     * {@link #farSnowLine} is unknown, and for biomes without seasons.
+     * the climate map has no tile for the column, for biomes the client doesn't know and for biomes without seasons;
+     * given where {@link #farSnowLine} is unknown because the ground decides, as the colours are.
+     *
+     * @since 0.1.2
      */
     public static Optional<FarClimate> farClimate(Level level, int x, int z) {
         return ClimateHooks.farClimate().climate(level, x, z);
@@ -245,6 +317,7 @@ public final class AlmanacApi {
      * @param base        the biome's climate in spring and fall
      * @param seasonal    one step colder in winter and warmer in summer
      * @param rainReaches whether the current rain event reaches this climate
+     * @since 0.1.2
      */
     public record FarClimate(Holder<Biome> biome, Climate base, Climate seasonal, boolean rainReaches) {
     }

@@ -3,6 +3,7 @@ package com.thenathe.almanac.mixin;
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
 import com.llamalad7.mixinextras.sugar.Local;
+import com.thenathe.almanac.biome.ChunkPacketOrigins;
 import com.thenathe.almanac.biome.SeasonalBiomeView;
 import java.util.BitSet;
 import net.minecraft.network.protocol.game.ClientboundLevelChunkWithLightPacket;
@@ -23,6 +24,9 @@ abstract class PlayerChunkSenderMixin {
             LevelChunk chunk, LevelLightEngine light, BitSet skyChanges, BitSet blockChanges,
             Operation<ClientboundLevelChunkWithLightPacket> original,
             @Local(argsOnly = true) ServerGamePacketListenerImpl connection, @Local(argsOnly = true) ServerLevel level) {
-        return SeasonalBiomeView.build(connection.player, level, () -> original.call(chunk, light, skyChanges, blockChanges));
+        ClientboundLevelChunkWithLightPacket packet = SeasonalBiomeView.build(connection.player, level,
+                () -> original.call(chunk, light, skyChanges, blockChanges));
+        ChunkPacketOrigins.built(packet, connection.player, SeasonalBiomeView.getsCopies(connection.player, level));
+        return packet;
     }
 }

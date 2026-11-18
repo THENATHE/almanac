@@ -110,6 +110,32 @@ class SnowRulesTest {
     }
 
     @Test
+    void onlyWaterThatWillFreezeHoldsBackTheIce() {
+        // Still water on top, where the season brings ice: the ice waits for it to freeze first.
+        assertTrue(SnowRules.holdsBackFreezing(true, true, true, true, true));
+        // Kelp, seagrass, waterlogged blocks and flowing water aren't still water; they count as shore.
+        assertFalse(SnowRules.holdsBackFreezing(false, true, true, true, true));
+        // Water under a dock or a lily pad, oceans, warm water and lit water never freeze here either.
+        assertFalse(SnowRules.holdsBackFreezing(true, false, true, true, true));
+        assertFalse(SnowRules.holdsBackFreezing(true, true, false, true, true));
+        assertFalse(SnowRules.holdsBackFreezing(true, true, true, false, true));
+        assertFalse(SnowRules.holdsBackFreezing(true, true, true, true, false));
+    }
+
+    @Test
+    void aPassThatCantGetAnyFurtherCountsAsDone() {
+        // More to do, and something changed here or elsewhere since: another pass.
+        assertEquals(SnowUpdates.Next.AGAIN, SnowUpdates.next(true, false, true, true));
+        assertEquals(SnowUpdates.Next.AGAIN, SnowUpdates.next(true, false, false, false));
+        // Water ringed by water that never comes, with nothing changing anywhere: done, not scanned all winter.
+        assertEquals(SnowUpdates.Next.DONE, SnowUpdates.next(true, false, false, true));
+        // Waiting only for the thaw or the snow forming: asleep until the next patch.
+        assertEquals(SnowUpdates.Next.SLEEP, SnowUpdates.next(false, true, true, false));
+        assertEquals(SnowUpdates.Next.SLEEP, SnowUpdates.next(true, true, false, true));
+        assertEquals(SnowUpdates.Next.DONE, SnowUpdates.next(false, false, true, false));
+    }
+
+    @Test
     void onlyChangesThatCanTakeSnowAwayStartAThaw() {
         SnowState winter = new SnowState(SubSeason.MID_WINTER, Map.of(Climate.TEMPERATE, 1, Climate.COLD, 1), true, 1);
         SnowState moreSnow = new SnowState(SubSeason.MID_WINTER, Map.of(Climate.TEMPERATE, 2, Climate.COLD, 1), true, 1);

@@ -1,5 +1,100 @@
 # Changelog
 
+## 0.1.3+26.3 (2026-11-17)
+
+### Snow and ice
+
+- A thaw under way now carries on after a server restart or Save and Quit instead of starting again, so thaws
+  finish on time however short the sessions are. Each chunk with snow or ice waiting for its thaw keeps the thaw in
+  its record.
+- New snow in loaded chunks builds up in patches that start small and spread, over the same thaw time as the melt,
+  instead of filling the land chunk by chunk. Chunks that load still get their snow at once.
+- A chunk that loads in early spring next to land that is already thawing joins that thaw, so there are no
+  chunk-shaped seams beside half-melted ground. Land far from anywhere loaded still keeps its snow until it thaws.
+- Oceans no longer freeze over in winter, so boats can cross them; lakes and rivers still freeze, and frozen oceans
+  behave as in plain Minecraft. Ice an older version put on an ocean melts at the next thaw. The biome tag
+  `#almanac:no_seasonal_ice` (oceans by default) says where.
+- Water ringed by kelp, seagrass, waterlogged blocks or a dock now freezes, and such water no longer keeps its chunk
+  busy all winter.
+- Ice under a block a player places stays frozen in spring, so an ice-fishing hut keeps its floor.
+- With deeper snow (`max_snow_accumulation_height` above 1), the top of a column now loses one layer a step, not two.
+- Changing the winter temperature, summer temperature or snow line settings now brings chunks up to date with the
+  new climate after the restart.
+- `/tick freeze` now holds the snow work in loaded chunks.
+
+### Weather
+
+- Storm darkness now fades in and out as in plain Minecraft. Players were sent a thunder level already scaled by the
+  rain, which their game scaled again, so at half rain a storm was a quarter as dark as it should be and skies
+  brightened early as storms ended.
+- A rain starting or stopping in another dimension with weather no longer leaves overworld players with that
+  dimension's rain level.
+
+### Settings
+
+- A settings file with a mistake in it is moved aside as `almanac-server.json.broken` (or `almanac-client.json.broken`)
+  and the log says so, instead of being overwritten with the defaults at the next save.
+- The server settings file is read again each time a world loads, so hand edits count from the next world, and
+  `/almanac config reload` reads it on a running server.
+- Saving the settings screen only changes the settings you changed, so it no longer undoes what another operator or
+  the console changed while it was open. A player made operator, or no longer one, gets the right to change the
+  settings at once, without reconnecting.
+- Players who aren't operators see the server's settings on the settings screen, greyed out.
+
+### Biomes and other mods
+
+- `/reload` and data pack changes no longer take the seasonal biomes out of their tags, so mods that check biome tags
+  keep recognising deserts, oceans and forests for players without Almanac. Changes to the climate tags still apply
+  after a restart.
+- The server warns at start if another mod changed the weather or colours of the seasonal biomes (Fabric's biome
+  modification API selecting biomes by tag reaches them), and once if a mod sends one player's chunk packet to
+  another who should get different biomes.
+
+### Far terrain
+
+- The climate map asks the world's biome source through the same entry point world generation uses, so biome mods
+  that hook it can show on the far map. Vanilla worlds get the same map as before.
+- Players share the map's sampling in turns, so after a restart nobody waits for everyone listed before them, and a tile
+  that can't be sampled is tried again, then left out so the rest of the map can finish.
+- Changing the map's cell size tells players to drop their old tiles, so none is left answering for its area.
+
+### API
+
+- New: `AlmanacApi.precipitationOf(Level, Holder<Biome>, BlockPos)`, what falls in a biome you already have, by the
+  same rule as `precipitationAt`; `farSnowChangedTick(Level)`, the game tick at which what far terrain shows last
+  changed, so a far-terrain melt can resume part way through for a player who joins mid-melt. It survives restarts.
+- Client calls are now safe from any thread. Nothing from 0.1.2 changed; `docs/INTEGRATION.md` now shows how to check
+  the installed version and lists Almanac's tags.
+
+### Network
+
+- Payloads now skip fields a newer Almanac adds at their end, so later versions can add to them without disconnecting
+  0.1.3 clients. 0.1.2 and 0.1.3 clients and servers work with each other in either direction: new data travels in new
+  payloads (`almanac:change_server_settings`, `almanac:far_snow_changed`), sent only to clients that take them.
+- A server sending 0 days per season no longer crashes Almanac clients.
+
+### Reliability
+
+- A damaged field in `season.dat` or `snow.dat` now costs only that field (logged), instead of resetting the year
+  and the snow history. A weather log copied from another world, ahead of its game time, is moved back.
+- An error in one chunk's snow work is logged with the chunk's position and that chunk is left alone until the
+  server restarts, instead of stopping the server.
+- Chunks that unload while a mod is still loading them off the server thread no longer stay in the snow queues.
+
+### Performance
+
+- Columns that can't change (no snow and none due) skip the costly checks, chunks only recheck when the snow of a
+  climate they contain changes, and chunks waiting for their thaw or snow forming sleep until their next patch is
+  due instead of being scanned again and again. `/almanac snow` shows what the snow work has cost.
+- Chunks rewritten for players without Almanac are shared by everyone sent them in the same tick, and the colour
+  refresh after a sub-season change takes up to four players a tick in turn, so its cost no longer grows with the
+  number of players (it takes longer on busy servers).
+
+### Other
+
+- New worlds no longer log that they have no saved snow.
+- Logging a seasonal biome ID that isn't a valid one no longer throws.
+
 ## 0.1.2+26.3 (2026-11-17)
 
 ### Far terrain

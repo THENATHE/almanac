@@ -11,6 +11,7 @@ import com.mojang.serialization.JsonOps;
 import com.thenathe.almanac.api.Climate;
 import com.thenathe.almanac.api.SubSeason;
 import java.util.Arrays;
+import java.util.EnumSet;
 import java.util.Map;
 import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
@@ -24,7 +25,8 @@ class ChunkSnowTest {
 
     private static ChunkSnow sample() {
         ChunkSnow record = new ChunkSnow();
-        record.markUpdated(WINTER, 123_456L);
+        record.markUpdated(WINTER, EnumSet.of(Climate.TEMPERATE, Climate.COLD), 123_456L);
+        record.setThaw(ThawPace.Window.startingAt(120_000L, 48_000L));
         record.setModSnowLayers(ChunkSnow.pack(new BlockPos(17, 70, -3)), 2);
         record.setModSnowLayers(ChunkSnow.pack(new BlockPos(31, -60, 0)), 1);
         record.setModIce(ChunkSnow.pack(new BlockPos(16, 62, 15)), true);
@@ -40,6 +42,8 @@ class ChunkSnowTest {
     private static void assertSame(ChunkSnow expected, ChunkSnow actual) {
         assertEquals(expected.updated(), actual.updated());
         assertEquals(expected.state(), actual.state());
+        assertEquals(expected.climates(), actual.climates());
+        assertEquals(expected.thaw(), actual.thaw());
         int[] positions = expected.modSnowPositions();
         Arrays.sort(positions);
         int[] read = actual.modSnowPositions();
@@ -107,6 +111,57 @@ class ChunkSnowTest {
         assertEquals(1, read.modSnowLayers(2048));
         assertEquals(0, read.modIcePositions().length);
         assertTrue(read.isPlayerSnow(256));
+    }
+
+    @Test
+    void theThawWindowAndClimatesSurviveSaving() {
+        // A chunk saved mid-thaw (a restart, or Save and Quit) carries on with the same window.
+        ChunkSnow read = viaNbt(sample());
+        assertEquals(new ThawPace.Window(120_000L, 168_000L), read.thaw());
+        assertEquals(EnumSet.of(Climate.TEMPERATE, Climate.COLD), read.climates());
+        read.setThaw(null);
+        assertNull(viaNbt(read).thaw());
+    }
+
+    @Test
+    void aRecordFromBefore013HasNoThawAndComparesTheWholeState() {
+        // As 0.1.2 writes it: no climates, no thaw.
+        var json = JsonParser.parseString("""
+                {"format": 1, "updated": 9, "state": {"sub_season": "mid_winter", "layers": {"temperate": 1, "cold": 2},
+                 "native_snow_melts": true, "snow_height": 2}, "mod_snow": [1792], "mod_snow_layers": [1]}
+                """);
+        ChunkSnow read = ChunkSnow.CODEC.parse(JsonOps.INSTANCE, json).getOrThrow();
+        assertNull(read.thaw());
+        assertNull(read.climates());
+        assertTrue(read.isUpTo(WINTER));
+        // Without the climates known, a change in any climate counts, as it did before.
+        assertFalse(read.isUpTo(new SnowState(SubSeason.MID_WINTER, Map.of(Climate.TEMPERATE, 1, Climate.COLD, 2,
+                Climate.HOT, 1), true, 2)));
+    }
+
+    @Test
+    void anUnknownClimateMakesTheClimatesUnknown() {
+        var json = JsonParser.parseString("""
+                {"state": {"sub_season": "mid_winter"}, "climates": ["temperate", "tundra"],
+                 "thaw": {"start": "soon"}}
+                """);
+        ChunkSnow read = ChunkSnow.CODEC.parse(JsonOps.INSTANCE, json).getOrThrow();
+        assertNull(read.climates());
+        assertNull(read.thaw());
+    }
+
+    @Test
+    void aChunkOnlyRechecksForTheClimatesItHolds() {
+        ChunkSnow plains = new ChunkSnow();
+        plains.markUpdated(WINTER, EnumSet.of(Climate.TEMPERATE), 1L);
+        SnowState moreColdSnow = new SnowState(SubSeason.MID_WINTER, Map.of(Climate.TEMPERATE, 1, Climate.COLD, 3), true, 2);
+        SnowState moreTemperateSnow = new SnowState(SubSeason.MID_WINTER, Map.of(Climate.TEMPERATE, 2, Climate.COLD, 2), true, 2);
+        assertTrue(plains.isUpTo(moreColdSnow));
+        assertFalse(plains.isUpTo(moreTemperateSnow));
+        ChunkSnow bare = new ChunkSnow();
+        bare.markUpdated(WINTER, EnumSet.noneOf(Climate.class), 1L);
+        assertTrue(bare.isUpTo(moreTemperateSnow));
+        assertTrue(viaNbt(bare).isUpTo(moreTemperateSnow));
     }
 
     @Test

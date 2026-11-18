@@ -14,25 +14,30 @@ import net.minecraft.world.level.saveddata.SavedDataType;
 
 /**
  * The world's place in the year and its rain-event count, kept in the overworld's saved data
- * ({@code data/almanac/season.dat}). Fields are only ever added, each with a default, so older saves keep loading.
+ * ({@code data/almanac/season.dat}). Fields are only ever added, each with a default, so older saves keep loading, and
+ * each is read on its own ({@link SavedFields}), so a damaged one doesn't reset the year.
  */
 public final class SeasonData extends SavedData {
     private static final int FORMAT = 1;
-    /** The clock hasn't seen a day yet: a new world, or a world from before Almanac was installed. */
-    public static final long NOT_STARTED = Long.MIN_VALUE;
+    private static final String FILE = "season.dat";
+    public static final long NOT_STARTED = SeasonClock.NOT_STARTED;
+    private static final long UNKNOWN_TICK = -1L;
 
     private record Saved(int format, int dayOfYear, int daysPerSeason, long lastClockDay, long rainEvent, boolean wasRaining,
-                         Map<String, Double> thawStartSnow) {
+                         Map<String, Double> thawStartSnow, int farSnowShown, long farSnowChanged) {
         static final Codec<Saved> CODEC = RecordCodecBuilder.create(instance -> instance.group(
-                Codec.INT.optionalFieldOf("format", FORMAT).forGetter(Saved::format),
-                Codec.INT.optionalFieldOf("day_of_year", 0).forGetter(Saved::dayOfYear),
-                Codec.INT.optionalFieldOf("days_per_season", 24).forGetter(Saved::daysPerSeason),
-                Codec.LONG.optionalFieldOf("last_clock_day", NOT_STARTED).forGetter(Saved::lastClockDay),
-                Codec.LONG.optionalFieldOf("rain_event", 0L).forGetter(Saved::rainEvent),
-                Codec.BOOL.optionalFieldOf("was_raining", false).forGetter(Saved::wasRaining),
+                SavedFields.optional(FILE, "format", Codec.INT, FORMAT).forGetter(Saved::format),
+                SavedFields.optional(FILE, "day_of_year", Codec.INT, 0).forGetter(Saved::dayOfYear),
+                SavedFields.optional(FILE, "days_per_season", Codec.INT, 24).forGetter(Saved::daysPerSeason),
+                SavedFields.optional(FILE, "last_clock_day", Codec.LONG, NOT_STARTED).forGetter(Saved::lastClockDay),
+                SavedFields.optional(FILE, "rain_event", Codec.LONG, 0L).forGetter(Saved::rainEvent),
+                SavedFields.optional(FILE, "was_raining", Codec.BOOL, false).forGetter(Saved::wasRaining),
                 // Added in 0.1.2; worlds from 0.1.0 and 0.1.1 have none and work it out again (see ServerSeasons).
-                Codec.unboundedMap(Codec.STRING, Codec.DOUBLE).optionalFieldOf("thaw_start_snow", Map.of())
-                        .forGetter(Saved::thawStartSnow)
+                SavedFields.optional(FILE, "thaw_start_snow", Codec.unboundedMap(Codec.STRING, Codec.DOUBLE), Map.of())
+                        .forGetter(Saved::thawStartSnow),
+                // Added in 0.1.3; older worlds count their first far-terrain state as a change.
+                SavedFields.optional(FILE, "far_snow_shown", Codec.INT, 0).forGetter(Saved::farSnowShown),
+                SavedFields.optional(FILE, "far_snow_changed", Codec.LONG, UNKNOWN_TICK).forGetter(Saved::farSnowChanged)
         ).apply(instance, Saved::new));
     }
 
@@ -47,6 +52,9 @@ public final class SeasonData extends SavedData {
     private boolean wasRaining;
     /** The snow depth of each climate when the current or latest thaw time began; empty when it isn't known. */
     private Map<Climate, Double> thawStartSnow = Map.of();
+    /** What far terrain showed ({@code FarClimatePayloads.State#farSnowFingerprint}) and the game tick it began. */
+    private int farSnowShown;
+    private long farSnowChanged = UNKNOWN_TICK;
 
     public SeasonData() {
     }
@@ -58,12 +66,15 @@ public final class SeasonData extends SavedData {
         rainEvent = saved.rainEvent();
         wasRaining = saved.wasRaining();
         thawStartSnow = readDepths(saved.thawStartSnow());
+        farSnowShown = saved.farSnowShown();
+        farSnowChanged = saved.farSnowChanged();
     }
 
     private Saved toSaved() {
         Map<String, Double> depths = new LinkedHashMap<>();
         thawStartSnow.forEach((climate, depth) -> depths.put(climate.id(), depth));
-        return new Saved(FORMAT, dayOfYear, daysPerSeason, lastClockDay, rainEvent, wasRaining, depths);
+        return new Saved(FORMAT, dayOfYear, daysPerSeason, lastClockDay, rainEvent, wasRaining, depths, farSnowShown,
+                farSnowChanged);
     }
 
     /** Depths by climate ID; only a full, readable set counts, anything else means not known. */
@@ -98,9 +109,17 @@ public final class SeasonData extends SavedData {
         return lastClockDay;
     }
 
-    public void setLastClockDay(long lastClockDay) {
-        this.lastClockDay = lastClockDay;
-        setDirty();
+    public SeasonClock.Reading clock() {
+        return new SeasonClock.Reading(dayOfYear, daysPerSeason, lastClockDay);
+    }
+
+    public void setClock(SeasonClock.Reading reading) {
+        if (!reading.equals(clock())) {
+            dayOfYear = reading.dayOfYear();
+            daysPerSeason = reading.daysPerSeason();
+            lastClockDay = reading.lastClockDay();
+            setDirty();
+        }
     }
 
     /** How many rain events this world has had; the current or last one has this number. */
@@ -134,5 +153,20 @@ public final class SeasonData extends SavedData {
     public void setThawStartSnow(Map<Climate, Double> depths) {
         thawStartSnow = Map.copyOf(depths);
         setDirty();
+    }
+
+    /**
+     * The game tick at which far terrain began to show {@code shown}: the saved tick if it was already showing it
+     * (across restarts, since game time stops while the server is off), otherwise {@code gameTime}, which is saved.
+     * A saved tick ahead of the game time (a file from another world) counts as unknown.
+     */
+    public long farSnowChanged(int shown, long gameTime) {
+        if (farSnowChanged != UNKNOWN_TICK && shown == farSnowShown && farSnowChanged <= gameTime) {
+            return farSnowChanged;
+        }
+        farSnowShown = shown;
+        farSnowChanged = gameTime;
+        setDirty();
+        return gameTime;
     }
 }

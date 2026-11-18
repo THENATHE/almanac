@@ -6,22 +6,20 @@ import com.google.gson.JsonParseException;
 import com.thenathe.almanac.client.settings.Accent;
 import com.thenathe.almanac.client.settings.SettingsStyle;
 import com.thenathe.almanac.config.ServerConfig;
-import java.io.IOException;
-import java.nio.file.Files;
+import com.thenathe.almanac.config.SettingsFile;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import net.fabricmc.loader.api.FabricLoader;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * This client's own choices, in {@code config/almanac-client.json}. Field names are part of the file, so they never
- * change; a file from an older version fills its missing fields from the defaults.
+ * change; a file from an older version fills its missing fields from the defaults. A file that doesn't read is set
+ * aside before anything saves over it ({@link SettingsFile}).
  */
 public final class ClientConfig {
-    private static final Logger LOGGER = LoggerFactory.getLogger("almanac");
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().disableHtmlEscaping().create();
     private static final String FILE_NAME = "almanac-client.json";
+    private static final SettingsFile<ClientConfig> FILE = new SettingsFile<>(
+            () -> FabricLoader.getInstance().getConfigDir().resolve(FILE_NAME), ClientConfig::fromJson, ClientConfig::toJson);
 
     public static final int MIN_REDRAW_SECTIONS = 1;
     public static final int MAX_REDRAW_SECTIONS = 512;
@@ -49,36 +47,15 @@ public final class ClientConfig {
     }
 
     public static Path file() {
-        return FabricLoader.getInstance().getConfigDir().resolve(FILE_NAME);
+        return FILE.path();
     }
 
     private static ClientConfig load() {
-        Path file = file();
-        if (Files.isRegularFile(file)) {
-            try {
-                ClientConfig read = fromJson(Files.readString(file));
-                if (read != null) {
-                    return read;
-                }
-            } catch (IOException failure) {
-                LOGGER.warn("Couldn't read {}; using defaults", file, failure);
-            }
-            LOGGER.warn("Couldn't understand {}; using defaults for now and leaving the file untouched", file);
-        }
-        return new ClientConfig();
+        return FILE.readOr(ClientConfig::new);
     }
 
     public static void save() {
-        Path file = file();
-        try {
-            Files.createDirectories(file.getParent());
-            // Write beside the real file first so a crash mid-write can't leave it half written.
-            Path temporary = file.resolveSibling(file.getFileName() + ".tmp");
-            Files.writeString(temporary, get().toJson());
-            Files.move(temporary, file, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-        } catch (IOException failure) {
-            LOGGER.warn("Couldn't save {}", file, failure);
-        }
+        FILE.save(get());
     }
 
     public String toJson() {

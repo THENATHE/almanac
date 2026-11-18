@@ -27,6 +27,12 @@ public final class SeasonalBiomeIndex {
      * stays all year. Loaded chunks need no tag for that (they see the blocks); far terrain does.
      */
     public static final String SNOW_SURFACE_TAG = "almanac:snow_surface";
+    /**
+     * Biomes whose water never gets the season's ice: oceans (user, 2026-11-17, via the audit), so boats can still
+     * cross them in winter. They freeze as their real biome does, so frozen oceans stay as in vanilla. Data packs
+     * can extend it.
+     */
+    public static final String NO_SEASONAL_ICE_TAG = "almanac:no_seasonal_ice";
     public static final SeasonalBiomeIndex EMPTY = new SeasonalBiomeIndex(Map.of());
 
     private final Map<Biome, Entry> byOriginal;
@@ -49,7 +55,8 @@ public final class SeasonalBiomeIndex {
             Set<String> tags = holder.tags().map(tag -> tag.location().toString()).collect(Collectors.toSet());
             Biome biome = holder.value();
             Climate base = ClimateSorter.sort(tags::contains, biome.getBaseTemperature(), biome.hasPrecipitation());
-            byOriginal.put(biome, new Entry(holder, base, seasonal, tags.contains(SNOW_SURFACE_TAG)));
+            byOriginal.put(biome, new Entry(holder, base, seasonal, tags.contains(SNOW_SURFACE_TAG),
+                    !tags.contains(NO_SEASONAL_ICE_TAG)));
         });
         return new SeasonalBiomeIndex(byOriginal);
     }
@@ -77,8 +84,12 @@ public final class SeasonalBiomeIndex {
         return byOriginal.size();
     }
 
-    /** @param snowSurface the biome is in {@link #SNOW_SURFACE_TAG} */
-    public record Entry(Holder.Reference<Biome> original, Climate base, Holder.Reference<Biome>[] copies, boolean snowSurface) {
+    /**
+     * @param snowSurface the biome is in {@link #SNOW_SURFACE_TAG}
+     * @param seasonalIce the biome's water freezes with the season: it isn't in {@link #NO_SEASONAL_ICE_TAG}
+     */
+    public record Entry(Holder.Reference<Biome> original, Climate base, Holder.Reference<Biome>[] copies, boolean snowSurface,
+                        boolean seasonalIce) {
         public Holder.Reference<Biome> copy(SubSeason subSeason) {
             return copies[subSeason.ordinal()];
         }

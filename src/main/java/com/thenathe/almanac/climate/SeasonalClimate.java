@@ -46,9 +46,16 @@ public record SeasonalClimate(SeasonalBiomeIndex index, SubSeason subSeason, Set
         return entry.copy(subSeason).value().getPrecipitationAt(pos, seaLevel);
     }
 
-    /** Water freezes by the season's temperature whatever the weather, as it does in vanilla. */
+    /**
+     * Water freezes by the season's temperature whatever the weather, as it does in vanilla, except in biomes that get
+     * no seasonal ice (oceans), which freeze as their real biome does.
+     */
     public boolean shouldFreeze(Biome biome, LevelReader level, BlockPos pos) {
-        return seasonal(biome).shouldFreeze(level, pos);
+        SeasonalBiomeIndex.Entry entry = index.entry(biome);
+        if (entry == null || !entry.seasonalIce()) {
+            return biome.shouldFreeze(level, pos);
+        }
+        return entry.copy(subSeason).value().shouldFreeze(level, pos);
     }
 
     public boolean shouldSnow(Biome biome, LevelReader level, BlockPos pos) {

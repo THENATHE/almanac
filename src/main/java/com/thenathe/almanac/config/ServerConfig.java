@@ -2,20 +2,20 @@ package com.thenathe.almanac.config;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
+import com.google.gson.JsonParser;
 import com.thenathe.almanac.api.Climate;
 import com.thenathe.almanac.api.SubSeason;
 import com.thenathe.almanac.climate.RainShares;
-import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import net.fabricmc.loader.api.FabricLoader;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Server settings. The server owns them: they live in {@code config/almanac-server.json}, operators change them from
@@ -25,11 +25,17 @@ import org.slf4j.LoggerFactory;
  * version fills its missing fields from the defaults. The climate of the seasonal biome copies is built once at
  * server start, so {@link #winterTemperature}, {@link #summerTemperature} and {@link #snowLineAboveSea} apply after
  * a restart.
+ *
+ * <p>The file is read when the game starts and again each time a server loads its world, so hand edits count from
+ * the next world (or {@code /almanac config reload}). A file that doesn't read is set aside ({@link SettingsFile}).
  */
 public final class ServerConfig {
-    private static final Logger LOGGER = LoggerFactory.getLogger("almanac");
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().disableHtmlEscaping().create();
     private static final String FILE_NAME = "almanac-server.json";
+    /** Written by the server itself; never part of a change. */
+    private static final Set<String> NOT_SETTINGS = Set.of("version", "_credits");
+    private static final SettingsFile<ServerConfig> FILE = new SettingsFile<>(
+            () -> FabricLoader.getInstance().getConfigDir().resolve(FILE_NAME), ServerConfig::fromJson, ServerConfig::toJson);
     public static final String CREDITS = "Almanac is new code. Idea by Fabric Seasons (lucaargolo): biome edits in memory and "
             + "tracking weather-placed snow. Idea by Serene Seasons (Glitchfiend): sub-seasons and rain timing. Idea by "
             + "Immersive Snow Reloaded (Straywave and contributors): snow recalculation on chunk load. No code is copied "
@@ -39,6 +45,8 @@ public final class ServerConfig {
     public static final int MAX_DAYS_PER_SEASON = 1200;
     public static final int MIN_SNOW_LINE = 18;
     public static final int MAX_SNOW_LINE = 400;
+    // Winter stays below vanilla's snow line (0.15) and summer above it, which the snow depth relies on
+    // (ColdRulesAgreeTest).
     public static final double MIN_WINTER_TEMPERATURE = -1.0;
     public static final double MAX_WINTER_TEMPERATURE = 0.1;
     public static final double MIN_SUMMER_TEMPERATURE = 0.2;
@@ -99,7 +107,10 @@ public final class ServerConfig {
     // Colours
     /** Send players without Almanac the seasonal biome copies, so they see seasonal weather and colours. */
     public boolean vanillaClientCopies = true;
-    /** Chunks per tick refreshed for each player without Almanac after a sub-season change. */
+    /**
+     * Chunks per tick refreshed for each player without Almanac after a sub-season change; up to four players take
+     * their turn each tick ({@code SeasonRefresh}).
+     */
     public int refreshChunksPerTick = 8;
 
     // Far terrain
@@ -128,24 +139,28 @@ public final class ServerConfig {
         save();
     }
 
+    /** Reads the file again, as a server loading its world does; a missing or unreadable one gives the defaults. */
+    public static void reload() {
+        current = load();
+    }
+
+    /**
+     * Reads the file again for {@code /almanac config reload} without touching the live settings: the caller applies
+     * them. A file that doesn't read has been set aside by then.
+     */
+    public static SettingsFile.Reading<ServerConfig> readFile() {
+        return FILE.read();
+    }
+
     public static Path file() {
-        return FabricLoader.getInstance().getConfigDir().resolve(FILE_NAME);
+        return FILE.path();
     }
 
     private static ServerConfig load() {
-        Path file = file();
-        if (Files.isRegularFile(file)) {
-            try {
-                ServerConfig read = fromJson(Files.readString(file));
-                if (read != null) {
-                    return read;
-                }
-                LOGGER.warn("{} is empty; using the defaults for now and leaving the file untouched", file);
-            } catch (IOException | RuntimeException failure) {
-                LOGGER.warn("Couldn't read {}; using the defaults for now and leaving the file untouched", file, failure);
-            }
-            return new ServerConfig();
+        if (FILE.read() instanceof SettingsFile.Reading.Read<ServerConfig> read) {
+            return read.settings();
         }
+        // No file, or it was set aside: start one with the defaults, as a fresh install does.
         ServerConfig defaults = new ServerConfig();
         current = defaults;
         save();
@@ -153,16 +168,7 @@ public final class ServerConfig {
     }
 
     public static void save() {
-        Path file = file();
-        try {
-            Files.createDirectories(file.getParent());
-            // Write beside the real file first so a crash mid-write can't leave it half written.
-            Path temporary = file.resolveSibling(file.getFileName() + ".tmp");
-            Files.writeString(temporary, GSON.toJson(get()));
-            Files.move(temporary, file, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-        } catch (IOException failure) {
-            LOGGER.warn("Couldn't save {}", file, failure);
-        }
+        FILE.save(get());
     }
 
     public String toJson() {
@@ -181,6 +187,67 @@ public final class ServerConfig {
 
     public ServerConfig copy() {
         return fromJson(toJson());
+    }
+
+    /**
+     * The settings that differ between {@code before} and {@code after}, as a JSON object of just those fields; a rain
+     * share row holds just the sub-seasons that differ. What the settings screen sends, so a save only touches what
+     * the player changed.
+     */
+    public static JsonObject changes(ServerConfig before, ServerConfig after) {
+        JsonObject old = GSON.toJsonTree(before).getAsJsonObject();
+        JsonObject changes = new JsonObject();
+        for (Map.Entry<String, JsonElement> field : GSON.toJsonTree(after).getAsJsonObject().entrySet()) {
+            String name = field.getKey();
+            JsonElement value = field.getValue();
+            JsonElement was = old.get(name);
+            if (NOT_SETTINGS.contains(name) || value.equals(was)) {
+                continue;
+            }
+            if (value.isJsonObject() && was != null && was.isJsonObject()) {
+                JsonObject changedEntries = new JsonObject();
+                for (Map.Entry<String, JsonElement> entry : value.getAsJsonObject().entrySet()) {
+                    if (!entry.getValue().equals(was.getAsJsonObject().get(entry.getKey()))) {
+                        changedEntries.add(entry.getKey(), entry.getValue());
+                    }
+                }
+                changes.add(name, changedEntries);
+            } else {
+                changes.add(name, value);
+            }
+        }
+        return changes;
+    }
+
+    /**
+     * {@code base} with {@code changesJson} (from {@link #changes}) applied on top, every value checked as for a file;
+     * fields the changes don't name keep {@code base}'s values. Null if the changes aren't a JSON object.
+     */
+    public static @Nullable ServerConfig withChanges(ServerConfig base, String changesJson) {
+        try {
+            JsonElement parsed = JsonParser.parseString(changesJson);
+            if (!parsed.isJsonObject()) {
+                return null;
+            }
+            JsonObject merged = GSON.toJsonTree(base).getAsJsonObject();
+            for (Map.Entry<String, JsonElement> change : parsed.getAsJsonObject().entrySet()) {
+                String name = change.getKey();
+                JsonElement value = change.getValue();
+                JsonElement was = merged.get(name);
+                if (NOT_SETTINGS.contains(name)) {
+                    continue;
+                }
+                if (value.isJsonObject() && was != null && was.isJsonObject()) {
+                    value.getAsJsonObject().entrySet().forEach(entry -> was.getAsJsonObject().add(entry.getKey(), entry.getValue()));
+                } else {
+                    merged.add(name, value);
+                }
+            }
+            ServerConfig read = GSON.fromJson(merged, ServerConfig.class);
+            return read == null ? null : read.validated();
+        } catch (JsonParseException | IllegalStateException invalid) {
+            return null;
+        }
     }
 
     public SubSeason startSubSeason() {

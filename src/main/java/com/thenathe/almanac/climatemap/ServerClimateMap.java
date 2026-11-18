@@ -7,6 +7,7 @@ import com.thenathe.almanac.network.FarClimatePayloads;
 import com.thenathe.almanac.season.ServerSeasons;
 import com.thenathe.almanac.snow.FarSnowRule;
 import com.thenathe.almanac.snow.SnowState;
+import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectLinkedOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
@@ -49,7 +50,11 @@ import org.slf4j.LoggerFactory;
  *   Nothing is loaded, generated or saved: biome sources are deterministic, so tiles live in memory only.</li>
  *   <li>Each player is sent the tiles within the radius, nearest first, within a byte budget per tick, and told to
  *   drop tiles once they are more than a tile beyond it.</li>
- *   <li>Season changes send no tiles: a small {@link FarClimatePayloads.State} says what far terrain shows now.</li>
+ *   <li>Season changes send no tiles: a small {@link FarClimatePayloads.State} says what far terrain shows now, and
+ *   clients with Almanac 0.1.3 or later are told the game tick it last changed at
+ *   ({@link FarClimatePayloads.SnowChanged}).</li>
+ *   <li>The sampler is shared round-robin: each tick a different player's nearest missing tile goes first. A tile that
+ *   fails to sample is tried again a few times, then left unknown, so the player's map can still finish.</li>
  * </ul>
  * Everything here runs on the server thread except the sampling.
  */
@@ -61,6 +66,9 @@ public final class ServerClimateMap {
     private static final int MAX_FINISHED_PER_TICK = 4;
     /** Tiles kept beyond those some player wants, for players coming back. */
     private static final int SPARE_TILES = 512;
+    /** Times a tile is sampled before it is left out. */
+    private static final int MAX_TRIES = 3;
+    private static final long[] NOTHING = new long[0];
     private static @Nullable ServerClimateMap current;
 
     private final MinecraftServer server;
@@ -71,8 +79,13 @@ public final class ServerClimateMap {
     /** Packed tiles ready to send, least recently used first. */
     private final Long2ObjectLinkedOpenHashMap<FarClimatePayloads.Tile> tiles = new Long2ObjectLinkedOpenHashMap<>();
     private final Long2ObjectOpenHashMap<CompletableFuture<int[]>> pending = new Long2ObjectOpenHashMap<>();
-    private final LongOpenHashSet failed = new LongOpenHashSet();
+    /** Failed tries per tile; at {@link #MAX_TRIES} the tile is left out. */
+    private final Long2IntOpenHashMap failures = new Long2IntOpenHashMap();
     private final Map<UUID, PlayerMap> players = new HashMap<>();
+    /** Which player's missing tiles are sampled first this tick. */
+    private int firstPlayer;
+    /** The overworld game tick at which what far terrain shows last changed; -1 before the first state. */
+    private long snowChangedTick = -1;
     /** The cell size of the tiles in use, as a shift; -1 while the map is off. */
     private int cellShift = -1;
     private FarClimatePayloads.@Nullable State lastState;
@@ -128,8 +141,14 @@ public final class ServerClimateMap {
     public static void playerJoined(ServerPlayer player) {
         ServerClimateMap map = current;
         if (map != null && map.lastState != null && takesClimateMap(player)) {
+            map.sendSnowChanged(player);
             ServerPlayNetworking.send(player, map.lastState);
         }
+    }
+
+    /** The overworld game tick at which what far terrain shows last changed, or -1 before it is known. */
+    public long snowChangedTick() {
+        return snowChangedTick;
     }
 
     public static void playerLeft(ServerPlayer player) {
@@ -160,8 +179,17 @@ public final class ServerClimateMap {
                 start(shift);
             }
             collectFinished();
+            List<long[]> missing = new ArrayList<>();
             for (ServerPlayer player : server.getPlayerList().getPlayers()) {
-                serve(player, config);
+                long[] wanted = serve(player, config);
+                if (wanted.length > 0) {
+                    missing.add(wanted);
+                }
+            }
+            if (!missing.isEmpty()) {
+                for (long key : TilePlan.fairOrder(missing, firstPlayer++, MAX_PENDING - pending.size())) {
+                    request(key);
+                }
             }
             if (server.getTickCount() % 100 == 0) {
                 evict();
@@ -196,19 +224,43 @@ public final class ServerClimateMap {
         if (state.equals(lastState)) {
             return;
         }
+        boolean farSnowChanged = !state.sameFarSnow(lastState);
+        if (farSnowChanged) {
+            // Saved with the season, so a restart doesn't count as a change.
+            snowChangedTick = seasons.farSnowChanged(state.farSnowFingerprint(), overworld.getGameTime());
+        }
         lastState = state;
         for (ServerPlayer player : server.getPlayerList().getPlayers()) {
             if (takesClimateMap(player)) {
+                // Before the state, so listeners to the change it brings already read the new tick.
+                if (farSnowChanged) {
+                    sendSnowChanged(player);
+                }
                 ServerPlayNetworking.send(player, state);
             }
         }
     }
 
-    /** Starts the map, or starts it again with another cell size: every tile is sampled and sent again. */
+    private void sendSnowChanged(ServerPlayer player) {
+        if (snowChangedTick >= 0 && ServerPlayNetworking.canSend(player, FarClimatePayloads.SnowChanged.TYPE)) {
+            ServerPlayNetworking.send(player, new FarClimatePayloads.SnowChanged(snowChangedTick));
+        }
+    }
+
+    /**
+     * Starts the map, or starts it again with another cell size: every tile is sampled and sent again, and players
+     * who had tiles at the old size are told to drop them first, so none is left answering for its area.
+     */
     private void start(int shift) {
+        boolean restart = cellShift != -1;
         clearTiles();
         cellShift = shift;
-        for (PlayerMap map : players.values()) {
+        for (Map.Entry<UUID, PlayerMap> entry : players.entrySet()) {
+            PlayerMap map = entry.getValue();
+            ServerPlayer player = server.getPlayerList().getPlayer(entry.getKey());
+            if (restart && player != null && !map.sent.isEmpty()) {
+                ServerPlayNetworking.send(player, new FarClimatePayloads.Forget(true, NOTHING));
+            }
             map.sent.clear();
             map.complete = false;
         }
@@ -225,21 +277,30 @@ public final class ServerClimateMap {
         tiles.clear();
         pending.values().forEach(future -> future.cancel(false));
         pending.clear();
-        failed.clear();
+        failures.clear();
     }
 
-    private void serve(ServerPlayer player, ServerConfig config) {
+    private boolean gaveUpOn(long key) {
+        return failures.get(key) >= MAX_TRIES;
+    }
+
+    /**
+     * Sends the player their ready tiles, nearest first, within the byte budget.
+     *
+     * @return the player's nearest tiles that still need sampling, at most {@link #MAX_PENDING}
+     */
+    private long[] serve(ServerPlayer player, ServerConfig config) {
         if (!takesClimateMap(player)) {
-            return;
+            return NOTHING;
         }
         PlayerMap map = players.computeIfAbsent(player.getUUID(), id -> new PlayerMap());
         if (player.level() != overworld) {
             // Only the overworld has a climate map; the client drops its tiles and gets them again on coming back.
             if (map.tileX != Integer.MIN_VALUE) {
-                ServerPlayNetworking.send(player, new FarClimatePayloads.Forget(true, new long[0]));
+                ServerPlayNetworking.send(player, new FarClimatePayloads.Forget(true, NOTHING));
                 map.reset();
             }
-            return;
+            return NOTHING;
         }
         int tileX = ClimateTile.tileOf(player.getBlockX());
         int tileZ = ClimateTile.tileOf(player.getBlockZ());
@@ -251,34 +312,38 @@ public final class ServerClimateMap {
         }
         map.credit = Math.min(map.credit + config.farClimateBytesPerTick, config.farClimateBytesPerTick);
         if (map.complete) {
-            return;
+            return NOTHING;
         }
         boolean unsent = false;
+        LongArrayList missing = new LongArrayList();
         for (long key : map.wanted) {
-            if (map.sent.contains(key)) {
+            if (map.sent.contains(key) || gaveUpOn(key)) {
                 continue;
             }
             unsent = true;
-            if (map.credit <= 0) {
-                break;
+            if (tiles.containsKey(key)) {
+                if (map.credit > 0) {
+                    FarClimatePayloads.Tile tile = tiles.getAndMoveToLast(key);
+                    ServerPlayNetworking.send(player, tile);
+                    int size = tile.sizeInBytes();
+                    map.credit -= size;
+                    map.bytesSent += size;
+                    map.tilesSent++;
+                    map.sent.add(key);
+                }
+            } else if (!pending.containsKey(key) && missing.size() < MAX_PENDING) {
+                missing.add(key);
             }
-            FarClimatePayloads.Tile tile = tiles.getAndMoveToLast(key);
-            if (tile != null) {
-                ServerPlayNetworking.send(player, tile);
-                int size = tile.sizeInBytes();
-                map.credit -= size;
-                map.bytesSent += size;
-                map.tilesSent++;
-                map.sent.add(key);
-            } else {
-                request(key);
+            if (map.credit <= 0 && missing.size() >= MAX_PENDING) {
+                break;
             }
         }
         map.complete = !unsent;
+        return missing.toLongArray();
     }
 
     private void request(long key) {
-        if (pending.size() >= MAX_PENDING || pending.containsKey(key) || failed.contains(key)) {
+        if (pending.size() >= MAX_PENDING || pending.containsKey(key) || gaveUpOn(key)) {
             return;
         }
         int shift = cellShift;
@@ -312,11 +377,16 @@ public final class ServerClimateMap {
                 ClimateTile tile = ClimateTile.ofBiomes(ClimateTile.keyX(key), ClimateTile.keyZ(key), cellShift, ids);
                 tiles.put(key, FarClimatePayloads.Tile.of(tile));
             } catch (RuntimeException failure) {
-                if (failed.isEmpty()) {
-                    LOGGER.warn("Almanac: couldn't sample climate map tile {}, {}; leaving it out", ClimateTile.keyX(key),
+                boolean firstFailure = failures.isEmpty();
+                int tries = failures.addTo(key, 1) + 1;
+                if (firstFailure) {
+                    LOGGER.warn("Almanac: couldn't sample climate map tile {}, {}; trying it again", ClimateTile.keyX(key),
                             ClimateTile.keyZ(key), failure);
                 }
-                failed.add(key);
+                if (tries == MAX_TRIES && givenUp() == 1) {
+                    LOGGER.warn("Almanac: gave up on climate map tile {}, {} after {} tries; far terrain there stays as "
+                            + "captured (/almanac snow counts tiles given up on)", ClimateTile.keyX(key), ClimateTile.keyZ(key), tries);
+                }
             }
         }
     }
@@ -370,8 +440,8 @@ public final class ServerClimateMap {
         long sampled = sampledTiles.get();
         double samplingMillis = samplingNanos.get() / 1e6;
         lines.add(String.format(Locale.ROOT, "Climate map: cells of %d blocks out to %d blocks, by %s; %d tiles ready, "
-                        + "%d sampling, %d failed", 1 << cellShift, config.farClimateRadius,
-                sampler.method().name().toLowerCase(Locale.ROOT), tiles.size(), pending.size(), failed.size()));
+                        + "%d sampling, %d given up on", 1 << cellShift, config.farClimateRadius,
+                sampler.method().name().toLowerCase(Locale.ROOT), tiles.size(), pending.size(), givenUp()));
         lines.add(String.format(Locale.ROOT, "  sampled %d tiles in %.1f ms (%.2f ms a tile, %.2f us a cell); "
                         + "server thread %.1f ms over %d ticks (%.4f ms a tick), slowest tick %.2f ms, %d ticks over 1 ms, "
                         + "%d over 5 ms", sampled, samplingMillis, sampled == 0 ? 0.0 : samplingMillis / sampled,
@@ -388,6 +458,10 @@ public final class ServerClimateMap {
             }
         }
         return lines;
+    }
+
+    private long givenUp() {
+        return failures.values().intStream().filter(tries -> tries >= MAX_TRIES).count();
     }
 
     private static int countSent(PlayerMap map) {
@@ -434,35 +508,18 @@ public final class ServerClimateMap {
             this.tileX = tileX;
             this.tileZ = tileZ;
             this.radius = radius;
-            int reach = radius / ClimateTile.SIZE + 1;
-            List<long[]> byDistance = new ArrayList<>();
-            for (int dz = -reach; dz <= reach; dz++) {
-                for (int dx = -reach; dx <= reach; dx++) {
-                    if (within(dx, dz, radius)) {
-                        byDistance.add(new long[] {(long) dx * dx + (long) dz * dz, ClimateTile.key(tileX + dx, tileZ + dz)});
-                    }
-                }
-            }
-            byDistance.sort((first, second) -> Long.compare(first[0], second[0]));
-            wanted = byDistance.stream().mapToLong(entry -> entry[1]).toArray();
+            wanted = TilePlan.nearestFirst(tileX, tileZ, radius);
             complete = false;
 
             LongArrayList forgotten = new LongArrayList();
             for (LongIterator keys = sent.iterator(); keys.hasNext(); ) {
                 long key = keys.nextLong();
-                if (!within(ClimateTile.keyX(key) - tileX, ClimateTile.keyZ(key) - tileZ, radius + ClimateTile.SIZE)) {
+                if (TilePlan.dropped(key, tileX, tileZ, radius)) {
                     forgotten.add(key);
                     keys.remove();
                 }
             }
             return forgotten.toLongArray();
-        }
-
-        /** Whether the nearest point of a tile is within {@code radius} blocks of the middle of the player's tile. */
-        static boolean within(int dx, int dz, int radius) {
-            long x = Math.max(0, (long) Math.abs(dx) * ClimateTile.SIZE - ClimateTile.SIZE / 2);
-            long z = Math.max(0, (long) Math.abs(dz) * ClimateTile.SIZE - ClimateTile.SIZE / 2);
-            return x * x + z * z <= (long) radius * radius;
         }
     }
 }

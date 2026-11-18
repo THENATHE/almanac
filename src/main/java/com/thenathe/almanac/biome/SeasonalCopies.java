@@ -8,7 +8,9 @@ import com.thenathe.almanac.climate.WeatherKind;
 import com.thenathe.almanac.colour.ColourChannel;
 import com.thenathe.almanac.colour.Colormaps;
 import com.thenathe.almanac.colour.SeasonalPalette;
+import com.thenathe.almanac.config.ServerConfig;
 import java.util.Locale;
+import java.util.Objects;
 import java.util.function.Function;
 
 /**
@@ -26,6 +28,22 @@ public final class SeasonalCopies {
 
     /** The temperatures the copies use. They are built once, at server start. */
     public record CopyClimate(float winterTemperature, float summerTemperature, int snowLineAboveSea) {
+        public static final CopyClimate DEFAULTS = of(new ServerConfig());
+
+        public static CopyClimate of(ServerConfig config) {
+            return new CopyClimate((float) config.winterTemperature, (float) config.summerTemperature,
+                    config.snowLineAboveSea);
+        }
+
+        /**
+         * A number that changes when any of the three settings does, saved with each chunk's snow state so chunks are
+         * brought up to date again after they change. Worked out the same way on every run.
+         */
+        public int fingerprint() {
+            return Objects.hash(Float.floatToIntBits(winterTemperature), Float.floatToIntBits(summerTemperature),
+                    snowLineAboveSea);
+        }
+
         /** A base temperature at which vanilla's cooling with height reaches the snow line at the given height. */
         public float snowLineTemperature() {
             return ClimateSorter.SNOW_TEMPERATURE + (snowLineAboveSea - VANILLA_SNOW_LEVEL) * COOLING_PER_BLOCK;

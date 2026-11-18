@@ -1,5 +1,6 @@
 package com.thenathe.almanac.client;
 
+import com.google.gson.JsonObject;
 import com.thenathe.almanac.api.Climate;
 import com.thenathe.almanac.api.SubSeason;
 import com.thenathe.almanac.client.settings.Accent;
@@ -48,26 +49,51 @@ public final class AlmanacSettings {
     public static Screen create(Screen parent) {
         ClientConfig client = ClientConfig.get();
         ServerSource source = serverSource();
+        if (source == ServerSource.LOCAL_FILE) {
+            // Show the file as it is now, hand edits included.
+            ServerConfig.reload();
+        }
         ServerConfig original = switch (source) {
             case CONNECTED_EDITABLE, CONNECTED_READ_ONLY -> ClientState.serverSettings();
             case LOCAL_FILE -> ServerConfig.get();
             case CONNECTED_WITHOUT_MOD -> null;
         };
-        ServerConfig edited = original == null ? null : original.copy();
+        ServerConfig shown = original == null ? null : original.copy();
         boolean editable = source == ServerSource.CONNECTED_EDITABLE || source == ServerSource.LOCAL_FILE;
 
         Runnable save = () -> {
             ClientConfig.save();
-            if (editable && edited != null && !edited.toJson().equals(original.toJson())) {
-                if (source == ServerSource.LOCAL_FILE) {
-                    ServerConfig.replace(edited.copy());
-                } else if (ClientPlayNetworking.canSend(SettingsPayloads.Update.TYPE)) {
-                    ClientPlayNetworking.send(new SettingsPayloads.Update(edited.toJson()));
-                }
+            if (editable && shown != null) {
+                saveServerSettings(source, ServerConfig.changes(original, shown));
             }
         };
         return new KitSettingsScreen(Component.translatable("almanac.title"), parent,
-                pages(source, editable ? edited : null, client), new ConfigLook(client), save);
+                pages(source, shown, client), new ConfigLook(client), save);
+    }
+
+    /**
+     * Sends only what the player changed, so a save never undoes what someone else changed while the screen was
+     * open. Servers with Almanac 0.1.3 or later apply the changes on top of their own latest settings; older ones
+     * take a whole set, so they get the server's latest as this client last heard it, with the changes on top.
+     */
+    private static void saveServerSettings(ServerSource source, JsonObject changes) {
+        if (changes.isEmpty()) {
+            return;
+        }
+        if (source == ServerSource.LOCAL_FILE) {
+            ServerConfig.reload();
+            ServerConfig updated = ServerConfig.withChanges(ServerConfig.get(), changes.toString());
+            if (updated != null) {
+                ServerConfig.replace(updated);
+            }
+        } else if (ClientPlayNetworking.canSend(SettingsPayloads.Change.TYPE)) {
+            ClientPlayNetworking.send(new SettingsPayloads.Change(changes.toString()));
+        } else if (ClientPlayNetworking.canSend(SettingsPayloads.Update.TYPE) && ClientState.serverSettings() != null) {
+            ServerConfig updated = ServerConfig.withChanges(ClientState.serverSettings(), changes.toString());
+            if (updated != null) {
+                ClientPlayNetworking.send(new SettingsPayloads.Update(updated.toJson()));
+            }
+        }
     }
 
     private static ServerSource serverSource() {
@@ -88,12 +114,17 @@ public final class AlmanacSettings {
         SettingsPage snow = new SettingsPage(Component.translatable("almanac.page.snow"));
         SettingsPage colours = new SettingsPage(Component.translatable("almanac.page.colours"));
 
+        List<SettingsPage> serverPages = List.of(seasons, weather, snow, colours);
         if (server == null) {
-            String reason = source == ServerSource.CONNECTED_WITHOUT_MOD ? "server_without_mod" : "server_read_only";
-            for (SettingsPage page : List.of(seasons, weather, snow, colours)) {
-                page.caption("server").note(reason);
+            for (SettingsPage page : serverPages) {
+                page.caption("server").note("server_without_mod");
             }
         } else {
+            if (source == ServerSource.CONNECTED_READ_ONLY) {
+                for (SettingsPage page : serverPages) {
+                    page.readOnly().caption("server").note("server_read_only");
+                }
+            }
             seasonRows(seasons, server, defaults);
             weatherRows(weather, server, defaults);
             snowRows(snow, server, defaults);
