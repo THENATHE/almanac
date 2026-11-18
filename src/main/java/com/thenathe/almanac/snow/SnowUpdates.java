@@ -34,8 +34,8 @@ import org.slf4j.LoggerFactory;
  *   the moment it loads.</li>
  *   <li>When the state changes, chunks that stay loaded move towards it gradually: a budgeted number of columns per
  *   tick, a layer at a time, in a scattered order. Snow and ice go at the pace of a thaw, and snow comes at the pace
- *   of a forming window of the same length ({@link ThawPace}); both start for every loaded chunk when the change can
- *   take snow away or bring it.</li>
+ *   of a forming window as long as vanilla's snowfall takes to whiten the ground ({@link ThawPace#formingDuration});
+ *   both start for every loaded chunk when the change can take snow away or bring it.</li>
  *   <li>A chunk with nothing to do but wait for its thaw or forming sleeps until the next patch is due.</li>
  * </ul>
  * A chunk's record says which state it last reached and which climates it holds, so an up-to-date chunk costs one
@@ -144,11 +144,11 @@ public final class SnowUpdates {
         SeasonalClimate climate = ServerSeasons.climate(level);
         ServerSeasons seasons = ServerSeasons.get();
         if (updates != null && climate != null && seasons != null) {
-            updates.tick(level, climate, seasons.snowState(), seasons.thawTicks());
+            updates.tick(level, climate, seasons.snowState(), seasons.thawTicks(), seasons.formingTicks());
         }
     }
 
-    private void tick(ServerLevel level, SeasonalClimate climate, SnowState now, long thawTicks) {
+    private void tick(ServerLevel level, SeasonalClimate climate, SnowState now, long thawTicks, long formingTicks) {
         ServerConfig config = ServerConfig.get();
         long gameTime = level.getGameTime();
         if (!now.equals(state)) {
@@ -156,7 +156,7 @@ public final class SnowUpdates {
                 startThaws(gameTime, thawTicks);
             }
             if (now.mayFormFrom(state)) {
-                startForming(gameTime, thawTicks);
+                startForming(gameTime, formingTicks);
             }
             state = now;
             gradual.addAll(loaded);
@@ -176,7 +176,7 @@ public final class SnowUpdates {
         // date, since they are on their way to players.
         if (level.tickRateManager().runsNormally()) {
             wake(gameTime);
-            gradual(level, updater, now, config.snowColumnsPerTick, thawTicks);
+            gradual(level, updater, now, config.snowColumnsPerTick, thawTicks, formingTicks);
         }
         catchUpNanos += caughtUpAt - started;
         gradualNanos += System.nanoTime() - caughtUpAt;
@@ -200,8 +200,8 @@ public final class SnowUpdates {
      * Starts the snow forming in every loaded chunk from now, replacing any under way: each new snowfall builds up from
      * small patches again.
      */
-    private void startForming(long now, long thawTicks) {
-        ThawPace.Window window = ThawPace.Window.startingAt(now, thawTicks);
+    private void startForming(long now, long formingTicks) {
+        ThawPace.Window window = ThawPace.Window.startingAt(now, formingTicks);
         for (LongIterator chunks = loaded.iterator(); chunks.hasNext(); ) {
             formings.put(chunks.nextLong(), window);
         }
@@ -277,7 +277,8 @@ public final class SnowUpdates {
         }
     }
 
-    private void gradual(ServerLevel level, ChunkSnowUpdater updater, SnowState now, int columns, long thawTicks) {
+    private void gradual(ServerLevel level, ChunkSnowUpdater updater, SnowState now, int columns, long thawTicks,
+                         long formingTicks) {
         // Each queued chunk starts at most one pass a tick, so short queues aren't scanned over and over within a tick.
         int passesLeft = gradual.size();
         while (columns > 0) {
@@ -296,7 +297,7 @@ public final class SnowUpdates {
                     finished(pos, chunk, record);
                     continue;
                 }
-                passPace = new ChunkPace(level, pos, chunk, record, thawTicks);
+                passPace = new ChunkPace(level, pos, chunk, record, thawTicks, formingTicks);
                 pass = new ChunkSnowUpdater.Pass(chunk, record, true, passPace);
                 passChunk = pos;
             } else {
@@ -467,14 +468,16 @@ public final class SnowUpdates {
         private final LevelChunk chunk;
         private final ChunkSnow record;
         private final long thawTicks;
+        private final long formingTicks;
         private long wakeAt = Long.MAX_VALUE;
 
-        ChunkPace(ServerLevel level, long pos, LevelChunk chunk, ChunkSnow record, long thawTicks) {
+        ChunkPace(ServerLevel level, long pos, LevelChunk chunk, ChunkSnow record, long thawTicks, long formingTicks) {
             this.level = level;
             this.pos = pos;
             this.chunk = chunk;
             this.record = record;
             this.thawTicks = thawTicks;
+            this.formingTicks = formingTicks;
         }
 
         @Override
@@ -501,7 +504,7 @@ public final class SnowUpdates {
             long now = level.getGameTime();
             ThawPace.Window window = formings.get(pos);
             if (window == null) {
-                window = ThawPace.Window.startingAt(now, thawTicks);
+                window = ThawPace.Window.startingAt(now, formingTicks);
                 formings.put(pos, window);
             }
             return reached(window, spot, now);

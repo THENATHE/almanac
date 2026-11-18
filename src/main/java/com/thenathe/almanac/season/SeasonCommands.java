@@ -21,6 +21,7 @@ import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.commands.SharedSuggestionProvider;
 import net.minecraft.network.chat.Component;
+import net.minecraft.world.level.gamerules.GameRules;
 
 /**
  * {@code /season} for everyone; {@code /season set|pause|resume|length}, {@code /almanac config} (and
@@ -132,6 +133,9 @@ public final class SeasonCommands {
                     climate.id(), seasons.snowDepth(climate), state.layers(climate)));
         }
         text.append("\nNative snow melts in summer: ").append(state.nativeSnowMelts());
+        int randomTickSpeed = seasons.server().overworld().getGameRules().get(GameRules.RANDOM_TICK_SPEED);
+        text.append(String.format(Locale.ROOT, "\nNew snow forms over %d ticks (random tick speed %d); a thaw takes %d ticks",
+                seasons.formingTicks(), randomTickSpeed, seasons.thawTicks()));
         text.append("\n").append(updates.describeQueues());
         ServerClimateMap climateMap = ServerClimateMap.get();
         if (climateMap != null) {

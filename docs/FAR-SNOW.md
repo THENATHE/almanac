@@ -219,13 +219,20 @@ Three server-to-client payloads (`network/FarClimatePayloads.java`), each starti
 A season change sends no tiles: the state payload says what far terrain shows, and the season sync still carries the
 sub-season, the snow depths and the rain reach.
 
+From 0.1.3.2 a fourth payload, `almanac:snow_forming` (`network/SnowFormingPayload.java`, format 1, then the forming
+time in game ticks as a var-long), carries `formingTicks` to clients that register it (0.1.3.2 and later), on joining
+and whenever the `randomTickSpeed` game rule changes it. It has a channel of its own rather than a field on
+`almanac:far_snow_changed` (which 0.1.3 readers would skip): it isn't part of the map, so it also reaches clients with
+the map turned off, and resending it when the game rule changes leaves the change tick's payload exactly as 0.1.3.1
+sent it.
+
 ## The client API
 
 Everything is static on `com.thenathe.almanac.api.AlmanacApi` (the `api` package is a stable contract from 0.1.1 on;
-these were added in 0.1.2, `farSnowChangedTick` in 0.1.3, and nothing earlier changed). They answer only on a client
-with Almanac connected to an Almanac server, for its overworld `ClientLevel`, so fill with the overworld's level. On
-the server (except `farSnowChangedTick`), in other dimensions and before anything has arrived, they say unknown (or
-empty).
+these were added in 0.1.2, `farSnowChangedTick` in 0.1.3, `formingTicks` in 0.1.3.2, and nothing earlier changed).
+They answer only on a client with Almanac connected to an Almanac server, for its overworld `ClientLevel`, so fill
+with the overworld's level. On the server (except `farSnowChangedTick` and `formingTicks`), in other dimensions and
+before anything has arrived, they say unknown (or empty).
 
 | Method | Returns |
 |---|---|
@@ -235,6 +242,7 @@ empty).
 | `seasonalFoliageColour(Level, int x, int z)` | `OptionalInt`: the same for foliage. |
 | `farClimate(Level, int x, int z)` | `Optional<FarClimate>`: the column's biome on the map (`Holder<Biome>`, the real biome), its base climate, its climate now (one step colder in winter, warmer in summer) and whether the current rain event reaches it. Empty where the map has no tile there, for biomes the client doesn't know and for biomes without seasons; given where the line is unknown, as the colours are. |
 | `farSnowChangedTick(Level)` (0.1.3) | `OptionalLong`: the overworld game tick (`Level#getGameTime`) at which what far terrain shows last changed everywhere; see "How long a change takes". |
+| `formingTicks(Level)` (0.1.3.2) | `OptionalLong`: how long falling snow takes to whiten loaded land, in game ticks; see "How long a change takes". Also answers on the server. |
 
 `FAR_SNOW_UNKNOWN = Integer.MIN_VALUE`, `FAR_SNOW_EVERYWHERE = Integer.MIN_VALUE + 1`,
 `FAR_SNOW_NOWHERE = Integer.MAX_VALUE`. Coordinates are block coordinates; a column's answer comes from the cell
@@ -249,19 +257,51 @@ same work plus a map lookup. Fill only what changed, off the render thread if th
 
 ### How long a change takes
 
-`AlmanacApi.thawTicks(Level)` (`OptionalLong`, game ticks) is how long the loaded chunks' thaw takes right now: the
-`thawDays` setting, at most half the current sub-season. LiteLights uses it as the length of its far-terrain melt and
-snow-forming animation when the far snow line changes, so far melts last as long as near ones; read it when the
-transition starts. It counts game ticks, so `/tick rate` and `/tick sprint` speed it up like the thaw itself. Empty
-when there is no season; without it, use your own default.
+Snow comes and goes near the player at different speeds, so far terrain needs two lengths. Read both when a transition
+starts; both count game ticks, so `/tick rate` and `/tick sprint` speed them up as they do the snow near the player.
+
+- **Melting:** `AlmanacApi.thawTicks(Level)` (`OptionalLong`) is how long the loaded chunks' thaw takes right now:
+  the `thawDays` setting (2 in-game days, 48,000 ticks, by default), at most half the current sub-season. Use it as
+  the length of a far-terrain melt, so far melts last as long as near ones. Empty when there is no season.
+- **Forming:** `AlmanacApi.formingTicks(Level)` (0.1.3.2, `OptionalLong`) is how long falling snow takes to whiten
+  loaded land right now: the time vanilla's own snowfall needs to cover 95 % of the open ground at the current
+  `randomTickSpeed` game rule, `ln(20) * 12288 / randomTickSpeed` rounded up (12,271 ticks at the default 3, 6,136
+  at 6, 36,812 at 1). Use it as the length of a far-terrain snow-forming animation. Empty when there is no season,
+  outside the overworld, and on servers older than 0.1.3.2: use **12,000 ticks** then.
+
+**Why forming isn't `thawTicks`** (corrected in 0.1.3.2; 0.1.3's notes said both take `thawTicks`). Vanilla's
+snowfall places the near snow: in 26.3 `ServerLevel#tickChunk` makes `randomTickSpeed` tries per chunk each tick,
+and a try that rolls 0 out of 48 gives one random column of the chunk a precipitation tick, which lays a layer of
+snow while it snows. So each column is hit on average every `48 * 256 / randomTickSpeed` ticks (4,096 at the
+default), and after `t` ticks of snowfall `1 - exp(-t * randomTickSpeed / 12288)` of the open ground is white: 63 %
+a third of the way through `formingTicks`, 86 % two thirds through, 95 % at the end. That only happens in chunks
+within simulation distance. Almanac's own forming (0.1.3 on) fills the rest of the loaded chunks in patches; in
+0.1.3 and 0.1.3.1 it took the thaw window, so a far-terrain animation over `thawTicks` matched only that, and land
+near the player was white about four times sooner. From 0.1.3.2 Almanac's forming takes `formingTicks` too, so
+every way snow forms near the player takes about as long. The melt is Almanac's alone (vanilla doesn't melt snow by
+season) and keeps `thawTicks`.
+
+Edge cases: with `randomTickSpeed` 0 vanilla never snows on the ground, but Almanac's forming still brings the
+season's snow, and `formingTicks` is the default speed's 12,271 ticks; a huge speed (vanilla then whitens the ground
+almost at once) gives 1. A game rule change reaches clients within a tick; Almanac's forming windows already under way
+keep their length, so a far animation that read `formingTicks` at its start agrees with them.
+
+**When the far land changes during a snowfall.** The far state turns snowy when a climate's snow depth reaches a
+whole layer, which is half a layer of snowfall in (the depth rounds to the nearest layer): about 2,048 ticks after
+the snow starts, at the depth's fixed pace. Vanilla's snowfall has been whitening the land within simulation distance
+since the snow started, so near land is already partly white then (about 40 % at the default speed). Almanac's
+forming, and a far animation over `formingTicks`, start at the change, so they finish that much later. Measured at the
+default speed (0.1.3.2): land within simulation distance, which gets vanilla's snowfall and Almanac's
+forming, was 95 % white 8,959 ticks after the snow started; land beyond it, which only Almanac's forming reaches, at
+2,028 + 11,781 = 13,809 ticks. `farSnowChangedTick` is the change, not the start of the snowfall.
 
 `AlmanacApi.farSnowChangedTick(Level)` (0.1.3, `OptionalLong`) is the overworld game tick at which that change began:
-a melt or forming animation is `(level.getGameTime() - tick) / thawTicks` of the way through, so a player who joins or
-relogs mid-melt sees it carry on rather than start again, and every player sees the same progress. It is saved with
-the season, so a server restart isn't a change. It comes from the server in its own payload, sent on joining and just
-before the state that changes it, so it is already new inside the `FAR_CLIMATE_CHANGED` listener for that change.
-Empty on servers older than 0.1.3: start the animation at the event then. Tiles arriving or being dropped don't
-change it, and since 0.1.3.1 neither does snow getting deeper or shallower in a climate that keeps some, since the far
+a melt is `(level.getGameTime() - tick) / thawTicks` of the way through, and snow forming
+`(level.getGameTime() - tick) / formingTicks`, so a player who joins or relogs mid-melt sees it carry on rather than
+start again, and every player sees the same progress. It is saved with the season, so a server restart isn't a
+change. It comes from the server in its own payload, sent on joining and just before the state that changes it, so
+it is already new inside the `FAR_CLIMATE_CHANGED` listener for that change. Empty on servers older than 0.1.3:
+start the animation at the event then. Tiles arriving or being dropped don't change it, and since 0.1.3.1 neither does snow getting deeper or shallower in a climate that keeps some, since the far
 rule only asks whether a climate has snow. That still fires the event, with the same far snow lines as before. (0.1.3
 moved the tick then too, so a player who rejoined during a melt resumed it late.)
 
@@ -288,7 +328,8 @@ coordinates, both ends included (`minX, minZ, maxX, maxZ`), and which kinds of a
 - Joining fires one event per tile as the map arrives (241 at the defaults, over the first few seconds),
   so coalesce: mark the changed area and fill once per frame.
 - **Telling a season change from map data arriving**: only the row "the shown state changes" (everywhere, `snowLines`
-  alone) is the far land itself changing, the one to animate over `thawTicks`. Every other kind (tiles arriving or
+  alone) is the far land itself changing, the one to animate: a melt over `thawTicks`, snow forming over
+  `formingTicks`. Every other kind (tiles arriving or
   dropped, the map switched on or off, colours, climate) is the map filling in or a separate kind of answer, and
   should show at once.
 - The level passed is the client's current one, which can be the Nether or the End, where every answer is unknown:

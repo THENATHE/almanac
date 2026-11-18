@@ -141,6 +141,14 @@ public final class ServerSeasons {
     }
 
     /**
+     * How long falling snow takes to whiten loaded land right now, in game ticks, from vanilla's snowfall rate and the
+     * overworld's {@code randomTickSpeed} game rule; see {@link ThawPace#formingDuration}.
+     */
+    public long formingTicks() {
+        return ThawPace.formingDuration(server.overworld().getGameRules().get(GameRules.RANDOM_TICK_SPEED));
+    }
+
+    /**
      * The whole layers of snow in each climate when the current or latest thaw time began. Far terrain shows them
      * through thaw time ({@link com.thenathe.almanac.snow.FarSnowRule#shown}).
      */
@@ -184,6 +192,7 @@ public final class ServerSeasons {
         }
         announcedStart = true;
         ServerNetworking.syncSeasonIfChanged(server);
+        ServerNetworking.syncFormingTicksIfChanged(server, formingTicks());
     }
 
     /** Jumps to the first day of a sub-season. */

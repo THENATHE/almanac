@@ -5,8 +5,10 @@ import com.thenathe.almanac.api.Climate;
 import com.thenathe.almanac.biome.SeasonalBiomeIndex;
 import com.thenathe.almanac.climate.SeasonalClimate;
 import com.thenathe.almanac.network.SeasonSyncPayload;
+import com.thenathe.almanac.network.SnowFormingPayload;
 import com.thenathe.almanac.network.WorldWeatherPayload;
 import java.util.OptionalDouble;
+import java.util.OptionalLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import net.minecraft.client.Minecraft;
@@ -29,6 +31,8 @@ public final class ClientSeasons {
     private static volatile @Nullable SeasonSyncPayload lastSync;
     /** The overworld's own rain and thunder levels, as last synced. */
     private static volatile @Nullable WorldWeatherPayload worldWeather;
+    /** How long falling snow takes to whiten loaded land, as a 0.1.3.2 or later server last said; -1 before. */
+    private static volatile long formingTicks = -1;
     private static final AtomicReference<@Nullable Snapshot> SNAPSHOT = new AtomicReference<>();
 
     private ClientSeasons() {
@@ -79,9 +83,20 @@ public final class ClientSeasons {
         return level instanceof ClientLevel ? worldWeather : null;
     }
 
+    static void receiveFormingTicks(SnowFormingPayload forming) {
+        formingTicks = forming.formingTicks();
+    }
+
+    /** Empty before the server has said, and on servers older than 0.1.3.2. */
+    static OptionalLong formingTicks(Level level) {
+        long ticks = formingTicks;
+        return ticks < 0 || !(level instanceof ClientLevel) ? OptionalLong.empty() : OptionalLong.of(ticks);
+    }
+
     static void disconnected() {
         lastSync = null;
         worldWeather = null;
+        formingTicks = -1;
         SNAPSHOT.set(null);
     }
 

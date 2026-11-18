@@ -8,6 +8,7 @@ import com.thenathe.almanac.climate.ClimateHooks;
 import com.thenathe.almanac.config.ServerConfig;
 import com.thenathe.almanac.network.FarClimatePayloads;
 import com.thenathe.almanac.network.SeasonSyncPayload;
+import com.thenathe.almanac.network.SnowFormingPayload;
 import com.thenathe.almanac.network.WorldWeatherPayload;
 import com.thenathe.almanac.network.SettingsPayloads;
 import net.fabricmc.api.ClientModInitializer;
@@ -49,6 +50,9 @@ public final class AlmanacClient implements ClientModInitializer {
         ClientPlayNetworking.registerGlobalReceiver(FarClimatePayloads.SnowChanged.TYPE, (payload, context) ->
                 ClientClimateMap.INSTANCE.receiveSnowChanged(payload));
         ClimateHooks.setClientFarSnowChanged(ClientClimateMap.INSTANCE::snowChangedTick);
+        ClientPlayNetworking.registerGlobalReceiver(SnowFormingPayload.TYPE, (payload, context) ->
+                ClientSeasons.receiveFormingTicks(payload));
+        ClimateHooks.setClientFormingTicks(ClientSeasons::formingTicks);
         ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
             ClientClimateMap.INSTANCE.disconnected();
             ClientSeasons.disconnected();

@@ -12,6 +12,8 @@ it came in:
   the far-terrain lookups and `AlmanacEvents.FAR_CLIMATE_CHANGED`.
 - **0.1.3** added `precipitationOf` and `farSnowChangedTick`, and the tag `#almanac:no_seasonal_ice`.
 - **0.1.3.1** added nothing; `farSnowChangedTick` moves only when far snow changes, not with every layer of depth.
+- **0.1.3.2** added `formingTicks`. Snow forming in loaded chunks takes that long instead of `thawTicks`, and far
+  terrain should form its snow over it too (0.1.3's notes said `thawTicks`).
 
 Nothing earlier changed. Anything outside the `api` package can change in any release.
 
@@ -46,7 +48,7 @@ in play:
 ```
 
 (name the version that added the newest call you use: `<0.1.2` for the far-terrain lookups, `<0.1.3` for
-`precipitationOf` or `farSnowChangedTick`), or check the version at runtime and only use the newer calls when they are
+`precipitationOf` or `farSnowChangedTick`, `<0.1.3.2` for `formingTicks`), or check the version at runtime and only use the newer calls when they are
 there:
 
 ```java
@@ -85,7 +87,8 @@ server thread; on a client every call is safe from any thread (the climate is ke
 | `originalBiome(ResourceKey<Biome>)` | The same, by key, without a registry. |
 | `rainReaches(Level, Climate)` | Whether the current (or most recent) rain event reaches a climate this sub-season. |
 | `snowDepth(Level, Climate)` | `OptionalDouble`: snow depth in layers, one value per climate for the whole dimension. On a client it is the server's value to a sixteenth of a layer. |
-| `thawTicks(Level)` (since 0.1.2) | `OptionalLong`: how long the season's snow and ice take to thaw in loaded chunks right now, in game ticks (the `thawDays` setting, at most half the current sub-season). On a client with Almanac 0.1.2 or later it comes with the climate state. Read it when a transition starts: LiteLights uses it as the length of its far-terrain melt and snow-forming animation, so far melts last as long as near ones. Empty when there is no season; callers without it use their own default. |
+| `thawTicks(Level)` (since 0.1.2) | `OptionalLong`: how long the season's snow and ice take to thaw in loaded chunks right now, in game ticks (the `thawDays` setting, at most half the current sub-season). On a client with Almanac 0.1.2 or later it comes with the climate state. Read it when a melt starts: it is the length for a far-terrain melt animation, so far melts last as long as near ones. Snow forming is quicker: see `formingTicks`. Empty when there is no season; callers without it use their own default. |
+| `formingTicks(Level)` (since 0.1.3.2) | `OptionalLong`: how long falling snow takes to whiten loaded land right now, in game ticks: the time vanilla's snowfall needs to cover 95 % of the open ground at the `randomTickSpeed` game rule, `ln(20) * 12288 / randomTickSpeed` rounded up (12,271 at the default 3). Almanac's own snow forming in loaded chunks takes as long, including beyond simulation distance where vanilla doesn't snow. Use it as the length of a far-terrain snow-forming animation; read it when the snow starts to form. With `randomTickSpeed` 0 it is the default speed's time (vanilla never snows then, Almanac's forming still runs), and a huge speed gives 1. On a client with Almanac 0.1.3.2 or later on a 0.1.3.2 or later server, which sends it on joining and when the game rule changes; empty on older servers (use 12,000 ticks). |
 | `worldRainLevel(Level)`, `worldThunderLevel(Level)` (since 0.1.2) | The dimension's own rain and thunder levels, 0 to 1, before each player's share (below). On the server, and on a client with Almanac 0.1.2 or later on an Almanac 0.1.2 or later server (synced every time they change). Elsewhere the level's own levels: the same thing without Almanac on the server, but **on an Almanac 0.1.1 server they are the player's share**, since that server doesn't send the world's levels and the client can't tell. |
 
 `SeasonalCopyId` reads and writes copy IDs as plain strings, so you can also copy its logic instead of depending on
@@ -198,7 +201,7 @@ for the overworld only: fill with the overworld's level, and expect "unknown" fo
 | `fillFarSnowLines(Level, originX, originZ, spacing, width, height, int[] lines)` | The same for a grid, row by row (x fastest), into `lines[j * width + i]`; returns how many are known. For filling a texture. |
 | `seasonalGrassColour(Level, int x, int z)`, `seasonalFoliageColour(...)` | `OptionalInt`: today's seasonal colour (opaque ARGB) of the column's biome on the map. Empty where the map has no tile or the client doesn't know the biome; given even where the snow line is unknown (snow-block biomes while they melt). |
 | `farClimate(Level, int x, int z)` | `Optional<FarClimate>`: the column's biome on the map, its base climate, its climate now and whether the current rain event reaches it. Empty where the map has no tile, for unknown biomes and for biomes without seasons. |
-| `farSnowChangedTick(Level)` (since 0.1.3) | `OptionalLong`: the overworld game tick at which what far terrain shows last changed everywhere (see "Telling a season change from map data" below). With `thawTicks` it says how far through its melt or snow forming the far land is, so an animation can resume part way, for a player who joins mid-melt for example. It survives server restarts. It moves only when the far rule's answers can change: since 0.1.3.1, snow getting deeper or shallower in a climate that keeps some (two layers to one) still fires the event but leaves the tick where it was. On the server, and on a 0.1.3 client of a 0.1.3 server, where it arrives before the change's event fires; empty on older servers, where you start the animation at the event instead. |
+| `farSnowChangedTick(Level)` (since 0.1.3) | `OptionalLong`: the overworld game tick at which what far terrain shows last changed everywhere (see "Telling a season change from map data" below). With `thawTicks` it says how far through its melt the far land is, and with `formingTicks` how far through its snow forming, so an animation can resume part way, for a player who joins mid-melt for example. It survives server restarts. It moves only when the far rule's answers can change: since 0.1.3.1, snow getting deeper or shallower in a climate that keeps some (two layers to one) still fires the event but leaves the tick where it was. On the server, and on a 0.1.3 client of a 0.1.3 server, where it arrives before the change's event fires; empty on older servers, where you start the animation at the event instead. |
 
 The sentinels are `FAR_SNOW_UNKNOWN = Integer.MIN_VALUE`, `FAR_SNOW_EVERYWHERE = Integer.MIN_VALUE + 1` and
 `FAR_SNOW_NOWHERE = Integer.MAX_VALUE`, so once unknown is ruled out the whole test for an upward face is
@@ -225,8 +228,10 @@ AlmanacEvents.FAR_CLIMATE_CHANGED.register((level, change) -> {
 
 **Telling a season change from map data.** Only a change that is everywhere with `snowLines` alone set
 (`change.isEverywhere() && change.snowLines() && !change.colours() && !change.climate()`) is the far land itself
-changing: a new sub-season, snow appearing or going, the native snow setting. That is the one to animate over
-`thawTicks`. Everything else (a tile arriving as you join or move, tiles dropped, the map switched on or off, which
+changing: a new sub-season, snow appearing or going, the native snow setting. That is the one to animate: a melt
+over `thawTicks`, snow forming over `formingTicks`. It comes when a climate's snow depth reaches a whole layer, half a
+layer into a snowfall (about 2,048 ticks), so the land near players, where vanilla's own snowfall has been at work
+since the snow started, is already partly white by then. Everything else (a tile arriving as you join or move, tiles dropped, the map switched on or off, which
 also sets colours and climate) is the map filling in and should show at once.
 
 Nothing fires on disconnecting, when every answer becomes unknown: clear your far-snow state when the player leaves a

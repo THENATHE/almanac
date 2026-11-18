@@ -97,6 +97,17 @@ public final class ChunkSnow {
         updated = gameTime;
     }
 
+    /**
+     * The chunk's snow or ice is changing on its way to another state, so it no longer matches the one it last reached.
+     * Until it is brought up to date again it counts as never brought up to date: otherwise a chunk left part way
+     * through a thaw (unloaded, or still waiting when the season moved on) would count as up to date the next time
+     * the same state came round, a year later say, and keep its half-melted snow.
+     */
+    public void leftLastState() {
+        state = null;
+        climates = null;
+    }
+
     public ThawPace.@Nullable Window thaw() {
         return thaw;
     }

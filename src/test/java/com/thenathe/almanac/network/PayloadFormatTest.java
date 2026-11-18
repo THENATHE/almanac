@@ -53,6 +53,35 @@ class PayloadFormatTest {
         assertArrayEquals(forget.tiles(), withNewerFields(forget, FarClimatePayloads.Forget.CODEC).tiles());
         FarClimatePayloads.SnowChanged changed = new FarClimatePayloads.SnowChanged(1_234_567L);
         assertEquals(changed, withNewerFields(changed, FarClimatePayloads.SnowChanged.CODEC));
+        SnowFormingPayload forming = new SnowFormingPayload(12_271L);
+        assertEquals(forming, withNewerFields(forming, SnowFormingPayload.CODEC));
+    }
+
+    @Test
+    void aFormingTimeOfNothingIsReadAsATick() {
+        assertEquals(1L, withNewerFields(new SnowFormingPayload(0L), SnowFormingPayload.CODEC).formingTicks());
+        assertEquals(1L, withNewerFields(new SnowFormingPayload(-30L), SnowFormingPayload.CODEC).formingTicks());
+        assertEquals(36_812L, withNewerFields(new SnowFormingPayload(36_812L), SnowFormingPayload.CODEC).formingTicks());
+    }
+
+    private static <T> byte[] encoded(T payload, StreamCodec<RegistryFriendlyByteBuf, T> codec) {
+        RegistryFriendlyByteBuf buffer = new RegistryFriendlyByteBuf(Unpooled.buffer(), RegistryAccess.EMPTY);
+        codec.encode(buffer, payload);
+        byte[] bytes = new byte[buffer.readableBytes()];
+        buffer.readBytes(bytes);
+        return bytes;
+    }
+
+    @Test
+    void theFarSnowPayloadsOlderClientsReadAreUnchanged() {
+        // 0.1.2 clients read the state without skipping, and LiteLights times its animations by the change tick, so
+        // these stay byte for byte what 0.1.3.1 sent; the forming time has a channel of its own.
+        FarClimatePayloads.State state = new FarClimatePayloads.State(true, SubSeason.MID_WINTER, new int[] {0, 1, 1},
+                true, 1, 48_000);
+        assertArrayEquals(new byte[] {1, 1, 10, 0, 1, 1, 1, 1, (byte) 0x80, (byte) 0xF7, 2},
+                encoded(state, FarClimatePayloads.State.CODEC));
+        assertArrayEquals(new byte[] {1, (byte) 0x87, (byte) 0xAD, 0x4B},
+                encoded(new FarClimatePayloads.SnowChanged(1_234_567L), FarClimatePayloads.SnowChanged.CODEC));
     }
 
     @Test

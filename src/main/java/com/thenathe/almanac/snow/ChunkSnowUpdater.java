@@ -321,6 +321,7 @@ final class ChunkSnowUpdater {
 
     private void setBlock(Pass pass, BlockPos pos, BlockState state) {
         level.setBlock(pos, state, FLAGS);
+        pass.record.leftLastState();
         pass.chunk.markUnsaved();
         pass.changed = true;
     }

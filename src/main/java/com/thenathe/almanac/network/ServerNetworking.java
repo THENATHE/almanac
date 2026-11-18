@@ -25,6 +25,8 @@ import org.jspecify.annotations.Nullable;
  */
 public final class ServerNetworking {
     private static @Nullable SeasonSyncPayload lastSync;
+    /** The snow forming time last sent, or -1 before the first. */
+    private static long lastFormingTicks = -1;
     /** Whether each player was last told they may change the settings, to tell them again when that changes. */
     private static final Map<UUID, Boolean> SENT_EDIT_RIGHTS = new HashMap<>();
 
@@ -41,6 +43,7 @@ public final class ServerNetworking {
         PayloadTypeRegistry.clientboundPlay().register(FarClimatePayloads.Forget.TYPE, FarClimatePayloads.Forget.CODEC);
         PayloadTypeRegistry.clientboundPlay().register(FarClimatePayloads.SnowChanged.TYPE, FarClimatePayloads.SnowChanged.CODEC);
         PayloadTypeRegistry.clientboundPlay().register(WorldWeatherPayload.TYPE, WorldWeatherPayload.CODEC);
+        PayloadTypeRegistry.clientboundPlay().register(SnowFormingPayload.TYPE, SnowFormingPayload.CODEC);
         ServerPlayNetworking.registerGlobalReceiver(SettingsPayloads.Update.TYPE, (payload, context) ->
                 updateSettings(context.player(), payload.json(), ServerConfig::fromJson));
         ServerPlayNetworking.registerGlobalReceiver(SettingsPayloads.Change.TYPE, (payload, context) ->
@@ -59,6 +62,10 @@ public final class ServerNetworking {
         SeasonSyncPayload sync = currentSync();
         if (sync != null && hasAlmanac(player)) {
             ServerPlayNetworking.send(player, sync);
+        }
+        ServerSeasons seasons = ServerSeasons.get();
+        if (seasons != null) {
+            sendFormingTicks(player, seasons.formingTicks());
         }
         sendSettings(player);
     }
@@ -85,8 +92,29 @@ public final class ServerNetworking {
         }
     }
 
+    /**
+     * Sends how long snow takes to form to every client that takes it, when it changed: the {@code randomTickSpeed}
+     * game rule can change at any time.
+     */
+    public static void syncFormingTicksIfChanged(MinecraftServer server, long formingTicks) {
+        if (formingTicks == lastFormingTicks) {
+            return;
+        }
+        lastFormingTicks = formingTicks;
+        for (ServerPlayer player : server.getPlayerList().getPlayers()) {
+            sendFormingTicks(player, formingTicks);
+        }
+    }
+
+    private static void sendFormingTicks(ServerPlayer player, long formingTicks) {
+        if (ServerPlayNetworking.canSend(player, SnowFormingPayload.TYPE)) {
+            ServerPlayNetworking.send(player, new SnowFormingPayload(formingTicks));
+        }
+    }
+
     public static void serverStopped() {
         lastSync = null;
+        lastFormingTicks = -1;
         SENT_EDIT_RIGHTS.clear();
     }
 

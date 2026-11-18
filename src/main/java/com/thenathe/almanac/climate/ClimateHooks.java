@@ -25,6 +25,7 @@ public final class ClimateHooks {
     private static volatile Function<Level, @Nullable WorldWeatherPayload> clientWorldWeather = level -> null;
     private static volatile Function<Level, OptionalLong> clientThawTicks = level -> OptionalLong.empty();
     private static volatile Function<Level, OptionalLong> clientFarSnowChanged = level -> OptionalLong.empty();
+    private static volatile Function<Level, OptionalLong> clientFormingTicks = level -> OptionalLong.empty();
 
     private ClimateHooks() {
     }
@@ -105,6 +106,23 @@ public final class ClimateHooks {
     /** Set once by the client entrypoint. */
     public static void setClientThawTicks(Function<Level, OptionalLong> source) {
         clientThawTicks = source;
+    }
+
+    /** How long falling snow takes to whiten loaded land now, in game ticks; on a client, as last synced. */
+    public static OptionalLong formingTicks(Level level) {
+        if (forLevel(level) == null) {
+            return OptionalLong.empty();
+        }
+        if (level instanceof ServerLevel) {
+            ServerSeasons seasons = ServerSeasons.get();
+            return seasons == null ? OptionalLong.empty() : OptionalLong.of(seasons.formingTicks());
+        }
+        return clientFormingTicks.apply(level);
+    }
+
+    /** Set once by the client entrypoint. */
+    public static void setClientFormingTicks(Function<Level, OptionalLong> source) {
+        clientFormingTicks = source;
     }
 
     /** The game tick at which what far terrain shows last changed; on a client, as last synced. */

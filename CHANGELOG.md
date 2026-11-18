@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.1.3.2+26.3 (2026-11-18)
+
+- New snow in loaded chunks now forms as fast as vanilla's own snowfall whitens the ground: about 12,300 ticks at
+  the default `randomTickSpeed` (half an in-game day), faster or slower with the game rule. 0.1.3 and 0.1.3.1 formed
+  it over the thaw time (two in-game days by default), so loaded land beyond simulation distance, where vanilla
+  doesn't snow, stayed patchy long after the land near players was white. The melt still takes the thaw time.
+- New API call `AlmanacApi.formingTicks(Level)`: how long falling snow takes to whiten loaded land, in game ticks, on
+  the server and on clients with Almanac 0.1.3.2 or later (the server sends it, since the game rule isn't synced).
+  Far terrain should form its snow over this and melt it over `thawTicks`; 0.1.3's notes said both take
+  `thawTicks`, which is only true of the melt. Earlier clients and servers keep working with this one both ways.
+- `/almanac snow` shows how long new snow takes to form and a thaw takes.
+- A chunk left part way through a thaw (unloaded, or still thawing when the season moved on) no longer counts as up
+  to date when the same season and snow depth come round again, such as the same sub-season a year later; before, it
+  kept its half-melted snow then instead of getting the season's snow.
+
 ## 0.1.3.1+26.3 (2026-11-18)
 
 - `AlmanacApi.farSnowChangedTick` now moves only when what far terrain shows changes. 0.1.3 also moved it whenever a

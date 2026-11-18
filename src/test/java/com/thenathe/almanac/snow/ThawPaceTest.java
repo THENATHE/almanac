@@ -9,6 +9,7 @@ import com.mojang.serialization.JsonOps;
 import com.thenathe.almanac.api.SubSeason;
 import com.thenathe.almanac.season.SeasonClock;
 import java.util.Arrays;
+import java.util.Random;
 import net.minecraft.core.BlockPos;
 import org.junit.jupiter.api.Test;
 
@@ -44,6 +45,78 @@ class ThawPaceTest {
         assertEquals(SeasonClock.TICKS_PER_DAY / 2, ThawPace.duration(2.0, 1));
         assertEquals(SeasonClock.TICKS_PER_DAY, ThawPace.duration(16.0, 2));
         assertEquals(4 * SeasonClock.TICKS_PER_DAY, ThawPace.duration(16.0, 8));
+    }
+
+    /**
+     * Vanilla's snowfall as {@code ServerLevel#tickChunk} does it, on chunks of open ground: each tick every chunk makes
+     * {@code randomTickSpeed} tries, and a try that rolls 0 out of 48 snows on one random column. Returns the share of
+     * columns with snow after {@code ticks}.
+     */
+    private static double vanillaCover(int randomTickSpeed, long ticks) {
+        Random random = new Random(26_3L);
+        int chunks = 40;
+        boolean[] snowy = new boolean[chunks * 256];
+        int covered = 0;
+        for (long tick = 0; tick < ticks; tick++) {
+            for (int chunk = 0; chunk < chunks; chunk++) {
+                for (int attempt = 0; attempt < randomTickSpeed; attempt++) {
+                    if (random.nextInt(48) == 0) {
+                        int column = chunk * 256 + random.nextInt(256);
+                        if (!snowy[column]) {
+                            snowy[column] = true;
+                            covered++;
+                        }
+                    }
+                }
+            }
+        }
+        return covered / (double) snowy.length;
+    }
+
+    @Test
+    void snowFormsAsFastAsVanillasSnowfallCoversTheGround() {
+        for (int speed : new int[] {1, 3, 10}) {
+            long forming = ThawPace.formingDuration(speed);
+            assertEquals(ThawPace.FORMED_COVER, vanillaCover(speed, forming), 0.01, "speed " + speed);
+            // Fast at first and slow at the end: well over half covered a third of the way in.
+            assertEquals(0.63, vanillaCover(speed, forming / 3), 0.02, "speed " + speed);
+        }
+    }
+
+    @Test
+    void theFormingTimeFollowsTheRandomTickSpeed() {
+        // ln(20) * 12288 / speed, rounded up.
+        assertEquals(12_271L, ThawPace.formingDuration(3));
+        assertEquals(36_812L, ThawPace.formingDuration(1));
+        assertEquals(3_682L, ThawPace.formingDuration(10));
+        assertEquals(369L, ThawPace.formingDuration(100));
+        long previous = Long.MAX_VALUE;
+        for (int speed = 1; speed <= 5_000; speed++) {
+            long forming = ThawPace.formingDuration(speed);
+            assertTrue(forming <= previous && forming >= 1, "speed " + speed);
+            previous = forming;
+        }
+    }
+
+    @Test
+    void noRandomTicksFormsAtTheDefaultPaceAndHugeSpeedsAtOnce() {
+        // Vanilla never snows on the ground then, but Almanac's own forming still brings the season's snow.
+        assertEquals(ThawPace.formingDuration(ThawPace.DEFAULT_RANDOM_TICK_SPEED), ThawPace.formingDuration(0));
+        assertEquals(ThawPace.formingDuration(ThawPace.DEFAULT_RANDOM_TICK_SPEED), ThawPace.formingDuration(-4));
+        assertEquals(1L, ThawPace.formingDuration(36_812));
+        assertEquals(1L, ThawPace.formingDuration(Integer.MAX_VALUE));
+    }
+
+    @Test
+    void almanacsFormingCoversTheGroundByTheTimeVanillasDoes() {
+        long forming = ThawPace.formingDuration(3);
+        ThawPace.Window window = ThawPace.Window.startingAt(50_000L, forming);
+        // Patches spread at an almost even pace and the window ends with everything covered, so by the time
+        // vanilla's snowfall has covered 95 %, so has Almanac's forming, give or take its slower last few percent.
+        assertEquals(ThawPace.FORMED_COVER, reachedShare(window.progress(50_000L + Math.round(forming * 0.95))), 0.07);
+        assertEquals(1.0, reachedShare(window.progress(window.end())));
+        // Not the default thaw's two days: a quarter of that.
+        assertTrue(forming < ThawPace.duration(2.0, 8) / 3);
     }
 
     @Test

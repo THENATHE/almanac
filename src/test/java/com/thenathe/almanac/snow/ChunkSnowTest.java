@@ -165,6 +165,22 @@ class ChunkSnowTest {
     }
 
     @Test
+    void aChunkChangedOnItsWayElsewhereIsNoLongerUpToDateWithItsLastState() {
+        ChunkSnow record = sample();
+        assertTrue(record.isUpTo(WINTER));
+        // Part way through a thaw: its snow already differs from mid winter's, so a later mid winter must redo it.
+        record.leftLastState();
+        assertFalse(record.isUpTo(WINTER));
+        ChunkSnow read = viaNbt(record);
+        assertFalse(read.isUpTo(WINTER), "also after saving and loading");
+        assertNull(read.state());
+        assertEquals(sample().thaw(), read.thaw(), "the thaw under way is kept");
+        assertEquals(2, read.modSnowLayers(ChunkSnow.pack(new BlockPos(17, 70, -3))), "and so is the season's snow");
+        read.markUpdated(WINTER, EnumSet.of(Climate.TEMPERATE), 200_000L);
+        assertTrue(read.isUpTo(WINTER));
+    }
+
+    @Test
     void forgettingAPositionClearsEveryRecordThere() {
         ChunkSnow record = sample();
         int key = ChunkSnow.pack(new BlockPos(17, 70, -3));

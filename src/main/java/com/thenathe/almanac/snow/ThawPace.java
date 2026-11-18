@@ -16,8 +16,10 @@ import org.jspecify.annotations.Nullable;
  * so the snow cover falls at a fairly steady rate, and everything may go once the thaw is over.
  *
  * <p>Snow forming in loaded chunks goes the same way (user, 2026-11-17, via the audit): when more snow belongs there,
- * it comes in patches that start small and spread, over a window of the same length and with the same points, so a
- * column that thaws early also gains its snow early. Chunks that load get their snow at once.
+ * it comes in patches that start small and spread, with the same points, so a column that thaws early also gains its
+ * snow early. Its window is as long as vanilla's own snowfall takes to whiten the ground ({@link #formingDuration},
+ * from 0.1.3.2; before that it was the thaw's length), so snow comes as fast in loaded chunks that vanilla doesn't
+ * snow on as in those it does. Chunks that load get their snow at once.
  *
  * <p>Thaws are counted in game ticks, so they speed up with {@code /tick rate} and {@code /tick sprint} like every
  * other part of the season.
@@ -34,6 +36,19 @@ public final class ThawPace {
      * look takes the next thirty-second or so of the chunk's snow, which still reads as patches spreading.
      */
     static final int MOST_VISITS = 32;
+    /**
+     * Vanilla's snowfall ({@code ServerLevel#tickChunk}): each tick, every chunk within simulation distance makes
+     * {@code randomTickSpeed} tries, and each try lands one precipitation tick on a random column of the chunk with
+     * a chance of 1 in 48. A column is hit on average once every {@code 48 * 256 / randomTickSpeed} ticks.
+     */
+    private static final int TICKS_PER_PRECIPITATION_TICK_AT_SPEED_ONE = 48 * 256;
+    /**
+     * The share of open ground vanilla's snowfall has covered when forming counts as done. Hits land at random, so the
+     * cover only ever approaches all of it: after {@code t} ticks it is {@code 1 - exp(-t * speed / 12288)}.
+     */
+    static final double FORMED_COVER = 0.95;
+    /** Vanilla's default {@code randomTickSpeed}. */
+    static final int DEFAULT_RANDOM_TICK_SPEED = 3;
 
     private ThawPace() {
     }
@@ -45,6 +60,20 @@ public final class ThawPace {
     public static long duration(double thawDays, int subSeasonDays) {
         double days = Math.min(thawDays, subSeasonDays / 2.0);
         return Math.max(1L, Math.round(days * SeasonClock.TICKS_PER_DAY));
+    }
+
+    /**
+     * How long falling snow takes to whiten loaded land, in game ticks: the time vanilla's snowfall needs to cover
+     * {@link #FORMED_COVER} of the open ground at this {@code randomTickSpeed}, {@code ln(20) * 12288 / speed}
+     * (12,271 ticks at the default 3). At least a tick, so a huge speed forms snow at once, as vanilla's does.
+     *
+     * <p>With a speed of 0 or less vanilla never snows on the ground, but Almanac's own forming still brings the
+     * season's snow, so it takes as long as at the default speed.
+     */
+    public static long formingDuration(int randomTickSpeed) {
+        int speed = randomTickSpeed > 0 ? randomTickSpeed : DEFAULT_RANDOM_TICK_SPEED;
+        double ticks = -Math.log(1.0 - FORMED_COVER) * TICKS_PER_PRECIPITATION_TICK_AT_SPEED_ONE / speed;
+        return Math.max(1L, (long) Math.ceil(ticks));
     }
 
     /** A chunk's thaw (or its snow forming), from its start to its end in game time. */

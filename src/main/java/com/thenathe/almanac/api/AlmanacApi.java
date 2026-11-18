@@ -178,8 +178,9 @@ public final class AlmanacApi {
 
     /**
      * How long the season's snow and ice take to thaw in loaded chunks right now, in game ticks: the {@code thawDays}
-     * setting, at most half the current sub-season. Read it when a transition starts, for example to make a melt or
-     * snow-forming animation on far terrain last as long as the thaw near the player. It counts game ticks, so
+     * setting, at most half the current sub-season. Read it when a transition starts, for example to make a melt
+     * animation on far terrain last as long as the thaw near the player. Snow forming doesn't take this long: see
+     * {@link #formingTicks} (since 0.1.3.2; 0.1.3 and 0.1.3.1 said otherwise). It counts game ticks, so
      * {@code /tick rate} and {@code /tick sprint} speed it up with the thaw itself.
      *
      * <p>On the server, and on a client with Almanac 0.1.2 or later connected to an Almanac server (it comes with the
@@ -192,13 +193,38 @@ public final class AlmanacApi {
     }
 
     /**
+     * How long falling snow takes to whiten loaded land right now, in game ticks: the time vanilla's own snowfall needs
+     * to cover 95 % of the open ground at the current {@code randomTickSpeed} game rule, {@code ln(20) * 12288 /
+     * randomTickSpeed} rounded up (12,271 ticks at the default 3). Almanac forms the season's snow in loaded chunks
+     * over the same time, including chunks outside simulation distance, where vanilla doesn't snow. Use it as the
+     * length of a far-terrain snow-forming animation, so far land whitens as fast as near land; melting takes
+     * {@link #thawTicks}. Read it when the transition starts.
+     *
+     * <p>Vanilla's snowfall hits columns at random, so near land whitens fast at first and slowly at the end (about
+     * 63 % a third of the way in, 86 % two thirds in). With {@code randomTickSpeed} 0 vanilla never snows on the
+     * ground, and this is the default speed's time, which Almanac's own forming still takes; a huge speed gives 1. It
+     * counts game ticks, so {@code /tick rate} and {@code /tick sprint} speed it up with the snowfall itself.
+     *
+     * <p>On the server, and on a client with Almanac 0.1.3.2 or later connected to an Almanac 0.1.3.2 or later server
+     * (sent on joining and whenever the game rule changes it). Empty when there is no season, outside the overworld,
+     * and on older servers: use 12,000 ticks then. Server calls belong on the server thread; on a client it is safe
+     * from any thread.
+     *
+     * @since 0.1.3.2
+     */
+    public static OptionalLong formingTicks(Level level) {
+        return ClimateHooks.formingTicks(level);
+    }
+
+    /**
      * The game tick ({@link Level#getGameTime} of the overworld) at which what far terrain shows last changed
      * everywhere: a new shown sub-season, snow appearing or going in a climate, the native snow setting, or the climate
      * map turned on or off. {@link AlmanacEvents#FAR_CLIMATE_CHANGED} reports each of those everywhere with only
      * {@code snowLines} set; it also does when only the depth of snow changes (two layers to one), which doesn't move
-     * the tick (since 0.1.3.1). With {@link #thawTicks} it says how far through its melt or snow forming the far
-     * land is, so an animation can resume part way, for example for a player who joins mid-melt. Tiles arriving or
-     * being dropped don't change it, and a server restart doesn't either (it is saved with the season).
+     * the tick (since 0.1.3.1). With {@link #thawTicks} it says how far through its melt the far land is, and with
+     * {@link #formingTicks} how far through its snow forming, so an animation can resume part way, for example for a
+     * player who joins mid-melt. Tiles arriving or being dropped don't change it, and a server restart doesn't either
+     * (it is saved with the season).
      *
      * <p>On the server, and on a client with Almanac 0.1.3 or later connected to an Almanac 0.1.3 server, where it
      * arrives before the change's event fires, so the listener reads the new tick. Empty elsewhere, outside the
