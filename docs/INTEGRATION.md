@@ -11,6 +11,7 @@ it came in:
 - **0.1.2** added biome-based `seasonalBiome` and `climateOf`, `worldRainLevel`, `worldThunderLevel` and `thawTicks`,
   the far-terrain lookups and `AlmanacEvents.FAR_CLIMATE_CHANGED`.
 - **0.1.3** added `precipitationOf` and `farSnowChangedTick`, and the tag `#almanac:no_seasonal_ice`.
+- **0.1.3.1** added nothing; `farSnowChangedTick` moves only when far snow changes, not with every layer of depth.
 
 Nothing earlier changed. Anything outside the `api` package can change in any release.
 
@@ -197,7 +198,7 @@ for the overworld only: fill with the overworld's level, and expect "unknown" fo
 | `fillFarSnowLines(Level, originX, originZ, spacing, width, height, int[] lines)` | The same for a grid, row by row (x fastest), into `lines[j * width + i]`; returns how many are known. For filling a texture. |
 | `seasonalGrassColour(Level, int x, int z)`, `seasonalFoliageColour(...)` | `OptionalInt`: today's seasonal colour (opaque ARGB) of the column's biome on the map. Empty where the map has no tile or the client doesn't know the biome; given even where the snow line is unknown (snow-block biomes while they melt). |
 | `farClimate(Level, int x, int z)` | `Optional<FarClimate>`: the column's biome on the map, its base climate, its climate now and whether the current rain event reaches it. Empty where the map has no tile, for unknown biomes and for biomes without seasons. |
-| `farSnowChangedTick(Level)` (since 0.1.3) | `OptionalLong`: the overworld game tick at which what far terrain shows last changed everywhere (see "Telling a season change from map data" below). With `thawTicks` it says how far through its melt or snow forming the far land is, so an animation can resume part way, for a player who joins mid-melt for example. It survives server restarts. On the server, and on a 0.1.3 client of a 0.1.3 server, where it arrives before the change's event fires; empty on older servers, where you start the animation at the event instead. |
+| `farSnowChangedTick(Level)` (since 0.1.3) | `OptionalLong`: the overworld game tick at which what far terrain shows last changed everywhere (see "Telling a season change from map data" below). With `thawTicks` it says how far through its melt or snow forming the far land is, so an animation can resume part way, for a player who joins mid-melt for example. It survives server restarts. It moves only when the far rule's answers can change: since 0.1.3.1, snow getting deeper or shallower in a climate that keeps some (two layers to one) still fires the event but leaves the tick where it was. On the server, and on a 0.1.3 client of a 0.1.3 server, where it arrives before the change's event fires; empty on older servers, where you start the animation at the event instead. |
 
 The sentinels are `FAR_SNOW_UNKNOWN = Integer.MIN_VALUE`, `FAR_SNOW_EVERYWHERE = Integer.MIN_VALUE + 1` and
 `FAR_SNOW_NOWHERE = Integer.MAX_VALUE`, so once unknown is ruled out the whole test for an upward face is

@@ -194,8 +194,9 @@ public final class AlmanacApi {
     /**
      * The game tick ({@link Level#getGameTime} of the overworld) at which what far terrain shows last changed
      * everywhere: a new shown sub-season, snow appearing or going in a climate, the native snow setting, or the climate
-     * map turned on or off. Those are the changes {@link AlmanacEvents#FAR_CLIMATE_CHANGED} reports everywhere with
-     * only {@code snowLines} set. With {@link #thawTicks} it says how far through its melt or snow forming the far
+     * map turned on or off. {@link AlmanacEvents#FAR_CLIMATE_CHANGED} reports each of those everywhere with only
+     * {@code snowLines} set; it also does when only the depth of snow changes (two layers to one), which doesn't move
+     * the tick (since 0.1.3.1). With {@link #thawTicks} it says how far through its melt or snow forming the far
      * land is, so an animation can resume part way, for example for a player who joins mid-melt. Tiles arriving or
      * being dropped don't change it, and a server restart doesn't either (it is saved with the season).
      *

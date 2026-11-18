@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.3.1+26.3 (2026-11-18)
+
+- `AlmanacApi.farSnowChangedTick` now moves only when what far terrain shows changes. 0.1.3 also moved it whenever a
+  climate's snow depth changed by a whole layer, even though far snow only depends on whether a climate has any, so
+  during a melt a player who rejoined resumed the far-terrain animation late and it finished late. A tick saved by
+  0.1.3 is kept. Events, payloads and every other API answer are unchanged.
+
 ## 0.1.3+26.3 (2026-11-17)
 
 ### Snow and ice

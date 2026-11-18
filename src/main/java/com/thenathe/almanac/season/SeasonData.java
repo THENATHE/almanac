@@ -24,7 +24,8 @@ public final class SeasonData extends SavedData {
     private static final long UNKNOWN_TICK = -1L;
 
     private record Saved(int format, int dayOfYear, int daysPerSeason, long lastClockDay, long rainEvent, boolean wasRaining,
-                         Map<String, Double> thawStartSnow, int farSnowShown, long farSnowChanged) {
+                         Map<String, Double> thawStartSnow, int farSnowShown, long farSnowChanged,
+                         boolean farSnowByRule) {
         static final Codec<Saved> CODEC = RecordCodecBuilder.create(instance -> instance.group(
                 SavedFields.optional(FILE, "format", Codec.INT, FORMAT).forGetter(Saved::format),
                 SavedFields.optional(FILE, "day_of_year", Codec.INT, 0).forGetter(Saved::dayOfYear),
@@ -37,7 +38,10 @@ public final class SeasonData extends SavedData {
                         .forGetter(Saved::thawStartSnow),
                 // Added in 0.1.3; older worlds count their first far-terrain state as a change.
                 SavedFields.optional(FILE, "far_snow_shown", Codec.INT, 0).forGetter(Saved::farSnowShown),
-                SavedFields.optional(FILE, "far_snow_changed", Codec.LONG, UNKNOWN_TICK).forGetter(Saved::farSnowChanged)
+                SavedFields.optional(FILE, "far_snow_changed", Codec.LONG, UNKNOWN_TICK).forGetter(Saved::farSnowChanged),
+                // Added in 0.1.3.1: far_snow_shown is the far rule's fingerprint rather than 0.1.3's, which counted
+                // every whole layer of snow.
+                SavedFields.optional(FILE, "far_snow_by_rule", Codec.BOOL, false).forGetter(Saved::farSnowByRule)
         ).apply(instance, Saved::new));
     }
 
@@ -52,9 +56,11 @@ public final class SeasonData extends SavedData {
     private boolean wasRaining;
     /** The snow depth of each climate when the current or latest thaw time began; empty when it isn't known. */
     private Map<Climate, Double> thawStartSnow = Map.of();
-    /** What far terrain showed ({@code FarClimatePayloads.State#farSnowFingerprint}) and the game tick it began. */
+    /** What far terrain showed ({@code FarClimatePayloads.State#farRuleFingerprint}) and the game tick it began. */
     private int farSnowShown;
     private long farSnowChanged = UNKNOWN_TICK;
+    /** Whether {@link #farSnowShown} is the far rule's fingerprint; false for one saved by 0.1.3. */
+    private boolean farSnowByRule;
 
     public SeasonData() {
     }
@@ -68,13 +74,14 @@ public final class SeasonData extends SavedData {
         thawStartSnow = readDepths(saved.thawStartSnow());
         farSnowShown = saved.farSnowShown();
         farSnowChanged = saved.farSnowChanged();
+        farSnowByRule = saved.farSnowByRule();
     }
 
     private Saved toSaved() {
         Map<String, Double> depths = new LinkedHashMap<>();
         thawStartSnow.forEach((climate, depth) -> depths.put(climate.id(), depth));
         return new Saved(FORMAT, dayOfYear, daysPerSeason, lastClockDay, rainEvent, wasRaining, depths, farSnowShown,
-                farSnowChanged);
+                farSnowChanged, farSnowByRule);
     }
 
     /** Depths by climate ID; only a full, readable set counts, anything else means not known. */
@@ -159,14 +166,22 @@ public final class SeasonData extends SavedData {
      * The game tick at which far terrain began to show {@code shown}: the saved tick if it was already showing it
      * (across restarts, since game time stops while the server is off), otherwise {@code gameTime}, which is saved.
      * A saved tick ahead of the game time (a file from another world) counts as unknown.
+     *
+     * @param shown      the far rule's fingerprint of what far terrain shows now
+     * @param shownBy013 0.1.3's fingerprint of the same state, to compare with a tick 0.1.3 saved, so worlds it saved
+     *                   mid-melt keep their tick
      */
-    public long farSnowChanged(int shown, long gameTime) {
-        if (farSnowChanged != UNKNOWN_TICK && shown == farSnowShown && farSnowChanged <= gameTime) {
-            return farSnowChanged;
+    public long farSnowChanged(int shown, int shownBy013, long gameTime) {
+        int compared = farSnowByRule ? shown : shownBy013;
+        boolean showingIt = farSnowChanged != UNKNOWN_TICK && compared == farSnowShown && farSnowChanged <= gameTime;
+        if (!showingIt) {
+            farSnowChanged = gameTime;
         }
-        farSnowShown = shown;
-        farSnowChanged = gameTime;
-        setDirty();
-        return gameTime;
+        if (!showingIt || !farSnowByRule) {
+            farSnowShown = shown;
+            farSnowByRule = true;
+            setDirty();
+        }
+        return farSnowChanged;
     }
 }

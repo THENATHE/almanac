@@ -171,15 +171,28 @@ class SavedDataReadingTest {
     void theFarSnowChangeSurvivesARestartButNotAChange() {
         // A world from 0.1.2 has no such fields: its first far state counts as new.
         SeasonData data = season("{\"day_of_year\": 12}");
-        assertEquals(5000L, data.farSnowChanged(77, 5000L));
+        assertEquals(5000L, data.farSnowChanged(77, 1077, 5000L));
         // The same state later, or after the file is read again, keeps its tick.
-        assertEquals(5000L, data.farSnowChanged(77, 9000L));
+        assertEquals(5000L, data.farSnowChanged(77, 1077, 9000L));
         SeasonData reread = season(SeasonData.CODEC.encodeStart(JsonOps.INSTANCE, data).getOrThrow().toString());
-        assertEquals(5000L, reread.farSnowChanged(77, 12000L));
+        assertEquals(5000L, reread.farSnowChanged(77, 1077, 12000L));
         // Something else shown: a new change.
-        assertEquals(12500L, reread.farSnowChanged(78, 12500L));
+        assertEquals(12500L, reread.farSnowChanged(78, 1078, 12500L));
         // A saved tick ahead of the game time (a season.dat from another world) doesn't count.
-        SeasonData copied = season("{\"far_snow_shown\": 5, \"far_snow_changed\": 900000}");
-        assertEquals(100L, copied.farSnowChanged(5, 100L));
+        SeasonData copied = season("{\"far_snow_shown\": 5, \"far_snow_by_rule\": true, \"far_snow_changed\": 900000}");
+        assertEquals(100L, copied.farSnowChanged(5, 1005, 100L));
+    }
+
+    @Test
+    void aFarSnowTickSavedBy013IsKept() {
+        // 0.1.3 saved its own fingerprint of the state, without far_snow_by_rule.
+        SeasonData data = season("{\"far_snow_shown\": 1005, \"far_snow_changed\": 4000}");
+        assertEquals(4000L, data.farSnowChanged(5, 1005, 9000L));
+        assertTrue(data.isDirty(), "the rule's fingerprint replaces 0.1.3's");
+        SeasonData reread = season(SeasonData.CODEC.encodeStart(JsonOps.INSTANCE, data).getOrThrow().toString());
+        assertEquals(4000L, reread.farSnowChanged(5, 2005, 12000L));
+        // A 0.1.3 save of another state is a change, as it was in 0.1.3.
+        SeasonData other = season("{\"far_snow_shown\": 1006, \"far_snow_changed\": 4000}");
+        assertEquals(9000L, other.farSnowChanged(5, 1005, 9000L));
     }
 }

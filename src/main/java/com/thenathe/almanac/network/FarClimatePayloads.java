@@ -88,11 +88,35 @@ public final class FarClimatePayloads {
         }
 
         /**
-         * A number for what {@link #sameFarSnow} compares, the same on every run (unlike {@link #hashCode}), so it
-         * can be saved to tell whether far snow changed while the server was off.
+         * Whether the far rule gives the same answers under both, for {@code farSnowChangedTick}. Narrower than
+         * {@link #sameFarSnow}: the rule only asks whether a climate has any snow ({@link com.thenathe.almanac.snow.FarSnowRule#snowLies}), so
+         * snow going from two layers to one changes nothing far terrain shows.
          */
+        public boolean sameFarRule(@Nullable State other) {
+            return other != null && enabled == other.enabled && shownSubSeason == other.shownSubSeason
+                    && Arrays.equals(anySnow(), other.anySnow()) && nativeSnowMelts == other.nativeSnowMelts
+                    && naturalHeight == other.naturalHeight;
+        }
+
+        /**
+         * A number for what {@link #sameFarRule} compares, the same on every run (unlike {@link #hashCode}), so it can
+         * be saved to tell whether far snow changed while the server was off.
+         */
+        public int farRuleFingerprint() {
+            return Objects.hash(enabled, shownSubSeason.ordinal(), Arrays.hashCode(anySnow()), nativeSnowMelts, naturalHeight);
+        }
+
+        /** 0.1.3's fingerprint, of what {@link #sameFarSnow} compares, to read the tick a 0.1.3 world saved. */
         public int farSnowFingerprint() {
             return Objects.hash(enabled, shownSubSeason.ordinal(), Arrays.hashCode(layers), nativeSnowMelts, naturalHeight);
+        }
+
+        private int[] anySnow() {
+            int[] any = new int[layers.length];
+            for (int climate = 0; climate < any.length; climate++) {
+                any[climate] = layers[climate] > 0 ? 1 : 0;
+            }
+            return any;
         }
 
         @Override

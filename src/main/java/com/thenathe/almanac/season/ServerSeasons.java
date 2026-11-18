@@ -154,8 +154,8 @@ public final class ServerSeasons {
     }
 
     /** The game tick at which far terrain began to show what it shows now; see {@link SeasonData#farSnowChanged}. */
-    public long farSnowChanged(int shown, long gameTime) {
-        return data.farSnowChanged(shown, gameTime);
+    public long farSnowChanged(int shown, int shownBy013, long gameTime) {
+        return data.farSnowChanged(shown, shownBy013, gameTime);
     }
 
     public void tick() {

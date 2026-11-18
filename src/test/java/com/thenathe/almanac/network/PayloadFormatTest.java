@@ -2,7 +2,9 @@ package com.thenathe.almanac.network;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.thenathe.almanac.api.Climate;
 import com.thenathe.almanac.api.SubSeason;
@@ -74,5 +76,25 @@ class PayloadFormatTest {
         FarClimatePayloads.State moreSnow = new FarClimatePayloads.State(true, SubSeason.MID_WINTER, new int[] {0, 2, 1},
                 true, 1, 48_000);
         assertNotEquals(winter.farSnowFingerprint(), moreSnow.farSnowFingerprint());
+    }
+
+    @Test
+    void theFarRuleOnlyCountsWhetherAClimateHasSnow() {
+        FarClimatePayloads.State winter = new FarClimatePayloads.State(true, SubSeason.MID_WINTER, new int[] {0, 1, 1},
+                true, 1, 48_000);
+        assertEquals(1194479477, winter.farRuleFingerprint());
+        FarClimatePayloads.State deeper = new FarClimatePayloads.State(true, SubSeason.MID_WINTER, new int[] {0, 3, 2},
+                true, 1, 48_000);
+        assertTrue(deeper.sameFarRule(winter), "two layers or three, the far rule shows the same");
+        assertFalse(deeper.sameFarSnow(winter), "but the state and its event still change");
+        assertEquals(winter.farRuleFingerprint(), deeper.farRuleFingerprint());
+        FarClimatePayloads.State melted = new FarClimatePayloads.State(true, SubSeason.MID_WINTER, new int[] {0, 0, 1},
+                true, 1, 48_000);
+        assertFalse(melted.sameFarRule(winter), "a climate losing its snow is a far change");
+        assertNotEquals(winter.farRuleFingerprint(), melted.farRuleFingerprint());
+        FarClimatePayloads.State nextSeason = new FarClimatePayloads.State(true, SubSeason.LATE_WINTER, new int[] {0, 1, 1},
+                true, 1, 48_000);
+        assertFalse(nextSeason.sameFarRule(winter));
+        assertFalse(winter.sameFarRule(null));
     }
 }

@@ -261,7 +261,9 @@ relogs mid-melt sees it carry on rather than start again, and every player sees 
 the season, so a server restart isn't a change. It comes from the server in its own payload, sent on joining and just
 before the state that changes it, so it is already new inside the `FAR_CLIMATE_CHANGED` listener for that change.
 Empty on servers older than 0.1.3: start the animation at the event then. Tiles arriving or being dropped don't
-change it.
+change it, and since 0.1.3.1 neither does snow getting deeper or shallower in a climate that keeps some, since the far
+rule only asks whether a climate has snow. That still fires the event, with the same far snow lines as before. (0.1.3
+moved the tick then too, so a player who rejoined during a melt resumed it late.)
 
 ### Knowing when to fill again
 

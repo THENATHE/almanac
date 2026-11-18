@@ -224,10 +224,13 @@ public final class ServerClimateMap {
         if (state.equals(lastState)) {
             return;
         }
-        boolean farSnowChanged = !state.sameFarSnow(lastState);
+        // Snow depth can change without changing what far terrain shows (a melt from two layers to one): the state is
+        // still sent and its event still fires, but the tick only moves when the far rule's answers do.
+        boolean farSnowChanged = !state.sameFarRule(lastState);
         if (farSnowChanged) {
             // Saved with the season, so a restart doesn't count as a change.
-            snowChangedTick = seasons.farSnowChanged(state.farSnowFingerprint(), overworld.getGameTime());
+            snowChangedTick = seasons.farSnowChanged(state.farRuleFingerprint(), state.farSnowFingerprint(),
+                    overworld.getGameTime());
         }
         lastState = state;
         for (ServerPlayer player : server.getPlayerList().getPlayers()) {
