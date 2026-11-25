@@ -1,8 +1,87 @@
 # Almanac far-terrain snow
 
-Status: built in Almanac 0.1.2+26.3.
+Status: built in Almanac 0.1.2+26.3, and changed since as the sections below say.
 
 This file is the contract for mods that draw far terrain. `docs/INTEGRATION.md` has the short version for other mods.
+
+## Cover (0.1.4)
+
+From 0.1.4 a far snow line says snow from a snowfall's first flake (any depth counts as the first layer), and how much
+of the ground the snow has reached is the climate's **cover**: `AlmanacApi.snowCover(level, climate)`, the first layer
+of `snowDepth`, 0 to 1. Loaded chunks and chunks that load lay snow on the columns whose point the cover has passed
+(scattered single columns from 0.1.5, as vanilla's snowfall lays them; the thaw's patches in 0.1.4; the client
+doesn't know the seed, so it can't reproduce the points). Far terrain should show the
+line's new snow on the same share of its columns, by any even spread of its own, and keep it there while the cover
+stands still: it comes from the saved weather log, so it is the same after leaving and coming back. LiteLights 1.0.4
+does this in place of timing a forming animation, and 1.0.6 scatters it the same way. From 0.1.5 vanilla's snowfall
+keeps to the cover too, so the land near the player is no further along than the far land. From 0.3.0 the cover is
+the first layer's share (`SnowLayers.cover`), which near a whole first layer is a little less than the depth
+("Layers").
+
+## Bare lines and the thaw (0.1.6)
+
+From 0.1.6 the cover paces the thaw too. While a climate's snow melts (it is warm for it and its depth is falling),
+far terrain keeps the lines of the last sub-season that climate was cold in, and `snowCover` falls from 1 to 0. Early
+spring no longer holds late winter's snow whole ("Early spring and the saved depths" below describes 0.1.2 to 0.1.5).
+
+`AlmanacApi.fillFarBareSnowLines` gives the **bare** lines: where snow lies today whatever the cover, as if no climate
+had any depth. Draw far snow like this, with no animation:
+
+- at and above a column's bare line: snow, always;
+- from its far snow line up to its bare line: snow on the share of columns the cover says, by any even spread;
+- below its far snow line: none.
+
+Fill both again when `FAR_CLIMATE_CHANGED` reports new snow lines **or** a climate change (the bare lines are
+today's, so they move with the sub-season). LiteLights 1.0.7 does this; with an older Almanac it keeps its timed
+changes.
+
+From 0.1.7 the client doesn't take the climate map at all beside a LiteLights older than 1.0.7 (`LiteLightsCheck`):
+those time far snow by `thawTicks` and `formingTicks`, which 0.1.7 removed, so far snow there is left as captured,
+and the log and the chat say which LiteLights is needed. See `docs/INTEGRATION.md`, "When the two mods' versions
+don't match".
+
+## Layers (0.3.0)
+
+From 0.3.0 the season's snow builds in layers, up to `maxSnowLayers` (3 by default), and every kind of land shows the
+same share of each layer: loaded chunks, chunks that load and far terrain. A climate's layers
+are `AlmanacApi.snowLayers(level, climate)`: `share(layer)` for each layer, and `layersAt(point)` for a column whose
+point (0 to 1) is that. Draw far snow like this:
+
+- at and above a column's bare line: snow, always, as before;
+- from its far snow line up to its bare line: `layersAt(point)` layers, by any even spread of points of your own
+  (none where it gives 0);
+- below its far snow line: none.
+
+The lines don't change with depth: they say where the season's snow lies at all, the shares how deep. A layer starts
+when the one under it is 90 % down and the thaw takes the top first, so a column's layers never jump, and a column
+with a second layer always has a first, whatever spread it is drawn with. `cover()` is the first layer's share, what
+`snowCover` gives.
+
+On a client the shares are followed forward from the last season sync to the client's game time, so they move
+smoothly between syncs; there is still nothing to animate. The far state (Network, below) carries how many layers
+have begun in each climate, not the shares.
+
+A far mod that reads only `snowDepth` and draws a depth between 0 and 1 as the cover (LiteLights 1.0.9) keeps
+working, and shows far snow full a little early: at a depth of 1.0 the first layer is at 95 %, whole at 1.1.
+
+## Snow by place (0.4.0)
+
+With regional weather (from 0.4.0) the snow lies where storms went, so how deep it is differs from place to place:
+each snow node (one every 256 blocks) has its own depth from the storms that crossed it, and a chunk takes its four
+nodes' depths weighed by nearness. The far rule and the climate map are unchanged: the lines still say where snow can
+lie in a column this sub-season, and the shares say how much of it does.
+
+- **`snowLayersAt(level, x, z, climate)`** gives the shares at a place, for far terrain that wants the snow of each
+  area. The client works it out itself, from the weather log the server sends and the storms, on its background
+  thread: the first ask about a place answers empty and starts the work, and the place answers from a tick or so later.
+  So ask per far tile and fill again when the answers arrive. It keeps about 11 km square of nodes worked out and lets
+  go of places not asked about for 600 ticks.
+- **`snowDepth` and `snowLayers` per climate** are, on a client, the snow where the player stands (each player's season
+  sync carries their own). A far terrain renderer that reads only those (LiteLights 1.0.9 to 1.0.12) shows the player's
+  own snow over all of the far land: right near the player and over land the same storms crossed, a little off
+  elsewhere.
+- **`/almanac snow`** and the climate map's "which climates have snow" (its far state) go by each climate's deepest snow
+  on loaded land, so the far lines show wherever any loaded land has the season's snow.
 
 ## The problem
 
@@ -18,10 +97,11 @@ the far land show snow here right now, and from what height?".
 
 ## Who gets it
 
-- Far snow needs Almanac 0.1.2 or later on the client as well as a LiteLights version that draws it (no LiteLights release does yet). In singleplayer both are on the same machine.
-- A vanilla client gets nothing new, and neither does a client with LiteLights but no Almanac, or with an older
-  Almanac. The server sends the map's payloads only to clients that registered them (Fabric's `canSend`); a client
-  registers them by having Almanac 0.1.2's client entrypoint.
+- Far snow needs Almanac 0.1.2 or later on the client as well as a LiteLights version that draws it (LiteLights 1.1.0 is the one that goes with Almanac 1.0.0). In singleplayer both are on the same
+  machine.
+- A client with LiteLights but no Almanac gets nothing (from 0.2.0 it can't join an Almanac server at all). The
+  server sends the map's payloads only to clients that registered them (Fabric's `canSend`); Almanac's client registers
+  them unless a LiteLights older than 1.0.7 is installed beside it (0.1.7).
 - Without Almanac on the client, LiteLights leaves far terrain as the far mod captured it.
 
 ## The far rule
@@ -29,7 +109,9 @@ the far land show snow here right now, and from what height?".
 Far terrain shows what a column would look like if its chunk loaded and was brought up to date right now, **except
 in early spring, which holds the snow the land had when early spring began**. Loaded chunks keep
 their snow in early spring and thaw while loaded, and chunks that load then keep theirs too, so far terrain switches
-from snowy to clear at the start of mid spring.
+from snowy to clear at the start of mid spring. (That was 0.1.2 to 0.1.5. From 0.1.6 a thawing climate keeps the
+lines of its last cold sub-season while the cover falls, "Bare lines and the thaw"; from 0.3.0 the shares fall layer
+by layer, "Layers".)
 
 The rule is in `snow/FarSnowRule.java`, beside `SnowRules`, and unit-tested in `FarSnowRuleTest`.
 
@@ -53,15 +135,18 @@ the level's height (a line at or below the bottom of the world becomes "everywhe
 
 ### How a column's line is worked out
 
-1. **The shown state.** Outside early spring: the current sub-season and the whole layers of snow in each climate,
-   the same numbers chunk catch-up uses. In early spring (the sub-seasons in `SnowRules.THAW_TIME`): the sub-season
-   before it (late winter) and the layers saved when early spring began (below). This is `FarSnowRule.shown`.
+1. **The shown state.** The current sub-season and the layers of snow begun in each climate (any share at all; until
+   0.2.0 whole layers), from the same state chunk catch-up uses. While a climate that is warm now still has snow
+   melting, the last sub-season it was cold in, with the layers there are now (from 0.1.6). Up to 0.1.5, in early
+   spring (the sub-seasons in `SnowRules.THAW_TIME`), the sub-season before it (late winter) and the layers saved when
+   early spring began (below). This is `FarSnowRule.shown`.
 2. **Two cold lines**, both by vanilla's own arithmetic (`Biome#coldEnoughToSnow`): the temperature counts as it is
    up to 17 blocks above sea level, and above that it drops by 0.05 every 40 blocks, moved up or down by up to 8 blocks
    by vanilla's temperature noise at that column. Snow can fall below 0.15.
-   - the **seasonal cold line**: of the shown sub-season's copy of the column's biome (the copy's temperature is the
-     season's: 0.0 in winter for warmer biomes, the snow line temperature in COLD biomes' early and late summer, the
-     summer temperature in COLD biomes' mid summer);
+   - the **seasonal cold line**: of the column's biome in the shown sub-season, from the climate table (0.2.0; until
+     0.1.7 of the sub-season's copy of the biome, which had the same temperature): 0.0 in winter for warmer biomes,
+     the snow line temperature in COLD biomes' early and late summer, the summer temperature in COLD biomes' mid
+     summer. Biomes in `#almanac:no_seasonal_snow` (jungles) have none: the season never makes them cold;
    - the **real cold line**: of the biome itself, which is where world generation put native snow.
    Biome temperature modifiers (frozen oceans' warmer patches) are included.
 3. **The line.** Whether snow lies at a height comes from `SnowRules.snow` itself, applied to a column as world
@@ -71,7 +156,7 @@ the level's height (a line at or below the bottom of the world becomes "everywhe
    - **Altitude snow always stays**: the real cold line always counts.
    - **HOT**: only altitude snow. Winter makes HOT biomes rainy, never cold.
    - **TEMPERATE**: in winter, snow everywhere the season makes it cold, but only once it has snowed in that climate
-     since winter began (its snow depth rounds to a layer or more); before that, only altitude snow.
+     since winter began (a layer has begun in its climate); before that, only altitude snow.
    - **COLD**: native snow, except where the season makes it warm and the "Native snow melts in summer" setting is
      on: mid summer melts it below about 360 blocks (above any normal build height), and early and late summer split
      rain below the snow line setting (`snowLineAboveSea`, 48: rain up to 48 above sea level, snow from 49) from
@@ -84,13 +169,15 @@ the level's height (a line at or below the bottom of the world becomes "everywhe
      surface rules place snow blocks) the line is `FAR_SNOW_UNKNOWN` whenever the two kinds of ground would differ
      (their summer melt), and far terrain stays as captured. The rest of the year both agree and the line is given.
      Data packs and mods add their own snow-surfaced biomes to the tag.
-   - **Biomes without seasonal copies** keep their own (real) snow.
+   - **Biomes without seasons** (not in the climate table: the Nether's and the End's) keep their own (real) snow.
 
-### Early spring and the saved depths
+### Early spring and the saved depths (0.1.2 to 0.1.5)
 
-The snow depth of each climate is saved with the season data (`data/almanac/season.dat`, field `thaw_start_snow`) at
-the tick early spring begins, including when `/season set` jumps into it. Far terrain uses those depths, rounded to
-layers, until mid spring.
+Up to 0.1.5 far terrain showed the snow early spring began with until mid spring. The snow depth of each climate was
+saved with the season data (`data/almanac/season.dat`, field `thaw_start_snow`) at the tick early spring began,
+including when `/season set` jumped into it, and far terrain used those depths, rounded to layers. 0.1.6 still saved
+them but nothing read them; 0.1.7 no longer reads or writes them, and drops the field from `season.dat` the next time
+the file is saved. The rest of this section describes 0.1.2 to 0.1.5.
 
 - Worlds from 0.1.0 and 0.1.1 have no such field; nothing else in the file changes. If such a world is opened
   outside early spring, the field is written the next time early spring begins.
@@ -110,8 +197,8 @@ layers, until mid spring.
   again; those blocks count as snowy.
 - One biome per cell (see the map below): columns near a biome border can take the neighbouring cell's answer.
 - Seasonal ice. The far rule gives snow lines only; frozen lakes and rivers far away are left as captured. Oceans never
-  get seasonal ice (0.1.3), so far oceans and near ones agree.
-
+  get seasonal ice (0.1.3), so far oceans and near ones agree. From 0.3.0 `AlmanacApi.iceCover` says how far still
+  water in each climate has frozen over, shore first, but the far rule has no shores, so it gives no ice lines.
 ## The climate map (server)
 
 `climatemap/ServerClimateMap.java`, `climatemap/TileSampler.java`.
@@ -207,32 +294,34 @@ bytes sent (or that the player's client takes no map).
 
 Three server-to-client payloads (`network/FarClimatePayloads.java`), each starting with a format number (1):
 
-- `almanac:far_climate_state`: whether the map is on, the shown sub-season, the whole layers of snow per climate,
-  whether native snow melts, the natural snow height, and the thaw time in loaded chunks (`thawTicks`; a change to
-  it alone fires no far-terrain event, since no line changes). Sent on joining and whenever it changes (a new sub-season,
-  layers appearing or going, the setting, the map turned on or off); a few bytes.
+- `almanac:far_climate_state`: whether the map is on, the shown sub-season, the layers of snow per climate, whether
+  native snow melts and the natural snow height. From 0.3.0 the layers are the number of layers begun (any share at
+  all; until 0.2.0 whole layers). Up to 0.1.6 the state ended with the thaw time in loaded chunks (`thawTicks`); 0.1.7
+  and 0.2.0 wrote it as 0 for clients up to 0.1.6, and 0.3.0 dropped it: those clients can't join since 0.2.0, and
+  the change is part of protocol 3. Sent on joining and whenever it changes (a new sub-season, layers beginning or
+  going, the setting, the map turned on or off); a few bytes.
 - `almanac:far_climate_tile`: a tile's position, its cell size, its palette of biome network IDs (the registry IDs
   the server's and the client's biome registries share, as in chunk packets), and its cells as palette indices packed
   into as few bits as the palette needs and compressed with deflate. A tile of one biome is just its palette.
 - `almanac:far_climate_forget`: tiles to drop, or all of them (on leaving the overworld).
 
 A season change sends no tiles: the state payload says what far terrain shows, and the season sync still carries the
-sub-season, the snow depths and the rain reach.
+sub-season, the snow and the rain reach. From 0.3.0 the sync carries each climate's depth and ice cover with how fast
+each is moving, the tick they were read at and the clocks, and the client follows them forward to its own game time
+between syncs (`docs/INTEGRATION.md`, "Added in 0.3.0").
 
-From 0.1.3.2 a fourth payload, `almanac:snow_forming` (`network/SnowFormingPayload.java`, format 1, then the forming
-time in game ticks as a var-long), carries `formingTicks` to clients that register it (0.1.3.2 and later), on joining
-and whenever the `randomTickSpeed` game rule changes it. It has a channel of its own rather than a field on
-`almanac:far_snow_changed` (which 0.1.3 readers would skip): it isn't part of the map, so it also reaches clients with
-the map turned off, and resending it when the game rule changes leaves the change tick's payload exactly as 0.1.3.1
-sent it.
+From 0.1.3 a fourth payload, `almanac:far_snow_changed`, carries `farSnowChangedTick`, just before the state that
+changes it. From 0.1.3.2 to 0.1.6 a fifth, `almanac:snow_forming`, carried `formingTicks` on a channel of its own; 0.1.7
+neither registers nor sends it, so a 0.1.7 server sends it to nobody and a 0.1.7 client isn't sent it.
 
 ## The client API
 
-Everything is static on `com.thenathe.almanac.api.AlmanacApi` (the `api` package is a stable contract from 0.1.1 on;
-these were added in 0.1.2, `farSnowChangedTick` in 0.1.3, `formingTicks` in 0.1.3.2, and nothing earlier changed).
-They answer only on a client with Almanac connected to an Almanac server, for its overworld `ClientLevel`, so fill
-with the overworld's level. On the server (except `farSnowChangedTick` and `formingTicks`), in other dimensions and
-before anything has arrived, they say unknown (or empty).
+Everything is static on `com.thenathe.almanac.api.AlmanacApi` (`docs/INTEGRATION.md` says what other mods can rely
+on; these were added in 0.1.2, `farSnowChangedTick` in 0.1.3, `fillFarBareSnowLines` in 0.1.6). They answer only on a
+client with Almanac connected to an Almanac server, for its overworld `ClientLevel`, so fill with the overworld's
+level. On the server (except `farSnowChangedTick`), in other dimensions and before anything has arrived, they say
+unknown (or empty). `snowDepth`, `snowCover`, and from 0.3.0 `snowLayers` and `iceCover`, are in the main table of
+`docs/INTEGRATION.md`.
 
 | Method | Returns |
 |---|---|
@@ -241,8 +330,8 @@ before anything has arrived, they say unknown (or empty).
 | `seasonalGrassColour(Level, int x, int z)` | `OptionalInt`: today's seasonal grass colour (opaque ARGB, `0xFFrrggbb`) of the column's biome on the map, with the biome's grass modifier (swamp, dark forest) applied, as the client colours grass there. Empty where the map has no tile there or the client doesn't know the biome. It is given even where the line is unknown (snow-block biomes while they melt). |
 | `seasonalFoliageColour(Level, int x, int z)` | `OptionalInt`: the same for foliage. |
 | `farClimate(Level, int x, int z)` | `Optional<FarClimate>`: the column's biome on the map (`Holder<Biome>`, the real biome), its base climate, its climate now (one step colder in winter, warmer in summer) and whether the current rain event reaches it. Empty where the map has no tile there, for biomes the client doesn't know and for biomes without seasons; given where the line is unknown, as the colours are. |
-| `farSnowChangedTick(Level)` (0.1.3) | `OptionalLong`: the overworld game tick (`Level#getGameTime`) at which what far terrain shows last changed everywhere; see "How long a change takes". |
-| `formingTicks(Level)` (0.1.3.2) | `OptionalLong`: how long falling snow takes to whiten loaded land, in game ticks; see "How long a change takes". Also answers on the server. |
+| `fillFarBareSnowLines(...)` (0.1.6) | The same grid of bare lines: where snow lies whatever the cover ("Bare lines and the thaw"). |
+| `farSnowChangedTick(Level)` (0.1.3) | `OptionalLong`: the overworld game tick (`Level#getGameTime`) at which what far terrain shows last changed everywhere; see "When far terrain last changed". |
 
 `FAR_SNOW_UNKNOWN = Integer.MIN_VALUE`, `FAR_SNOW_EVERYWHERE = Integer.MIN_VALUE + 1`,
 `FAR_SNOW_NOWHERE = Integer.MAX_VALUE`. Coordinates are block coordinates; a column's answer comes from the cell
@@ -255,55 +344,21 @@ after publishing; no locks are taken.
 512 x 512 columns, 4 blocks apart, 12.5 ms (48 ns a column, more columns share a tile). A single `farSnowLine` is the
 same work plus a map lookup. Fill only what changed, off the render thread if the budget is tight.
 
-### How long a change takes
+### When far terrain last changed
 
-Snow comes and goes near the player at different speeds, so far terrain needs two lengths. Read both when a transition
-starts; both count game ticks, so `/tick rate` and `/tick sprint` speed them up as they do the snow near the player.
+Since 0.1.6 the cover says how much of the season's snow lies, forming and melting, so far terrain that follows it
+needs no animation and no lengths. Up to 0.1.6 the API also gave two lengths to animate with: `thawTicks`, the
+`thawDays` setting in ticks, and from 0.1.3.2 `formingTicks`, the time vanilla's snowfall takes to whiten the ground
+at the current `randomTickSpeed` (`ln(20) * 12288 / randomTickSpeed`, 12,271 ticks at the default). 0.1.7 removed both.
 
-- **Melting:** `AlmanacApi.thawTicks(Level)` (`OptionalLong`) is how long the loaded chunks' thaw takes right now:
-  the `thawDays` setting (2 in-game days, 48,000 ticks, by default), at most half the current sub-season. Use it as
-  the length of a far-terrain melt, so far melts last as long as near ones. Empty when there is no season.
-- **Forming:** `AlmanacApi.formingTicks(Level)` (0.1.3.2, `OptionalLong`) is how long falling snow takes to whiten
-  loaded land right now: the time vanilla's own snowfall needs to cover 95 % of the open ground at the current
-  `randomTickSpeed` game rule, `ln(20) * 12288 / randomTickSpeed` rounded up (12,271 ticks at the default 3, 6,136
-  at 6, 36,812 at 1). Use it as the length of a far-terrain snow-forming animation. Empty when there is no season,
-  outside the overworld, and on servers older than 0.1.3.2: use **12,000 ticks** then.
-
-**Why forming isn't `thawTicks`** (corrected in 0.1.3.2; 0.1.3's notes said both take `thawTicks`). Vanilla's
-snowfall places the near snow: in 26.3 `ServerLevel#tickChunk` makes `randomTickSpeed` tries per chunk each tick,
-and a try that rolls 0 out of 48 gives one random column of the chunk a precipitation tick, which lays a layer of
-snow while it snows. So each column is hit on average every `48 * 256 / randomTickSpeed` ticks (4,096 at the
-default), and after `t` ticks of snowfall `1 - exp(-t * randomTickSpeed / 12288)` of the open ground is white: 63 %
-a third of the way through `formingTicks`, 86 % two thirds through, 95 % at the end. That only happens in chunks
-within simulation distance. Almanac's own forming (0.1.3 on) fills the rest of the loaded chunks in patches; in
-0.1.3 and 0.1.3.1 it took the thaw window, so a far-terrain animation over `thawTicks` matched only that, and land
-near the player was white about four times sooner. From 0.1.3.2 Almanac's forming takes `formingTicks` too, so
-every way snow forms near the player takes about as long. The melt is Almanac's alone (vanilla doesn't melt snow by
-season) and keeps `thawTicks`.
-
-Edge cases: with `randomTickSpeed` 0 vanilla never snows on the ground, but Almanac's forming still brings the
-season's snow, and `formingTicks` is the default speed's 12,271 ticks; a huge speed (vanilla then whitens the ground
-almost at once) gives 1. A game rule change reaches clients within a tick; Almanac's forming windows already under way
-keep their length, so a far animation that read `formingTicks` at its start agrees with them.
-
-**When the far land changes during a snowfall.** The far state turns snowy when a climate's snow depth reaches a
-whole layer, which is half a layer of snowfall in (the depth rounds to the nearest layer): about 2,048 ticks after
-the snow starts, at the depth's fixed pace. Vanilla's snowfall has been whitening the land within simulation distance
-since the snow started, so near land is already partly white then (about 40 % at the default speed). Almanac's
-forming, and a far animation over `formingTicks`, start at the change, so they finish that much later. Measured at the
-default speed (0.1.3.2): land within simulation distance, which gets vanilla's snowfall and Almanac's
-forming, was 95 % white 8,959 ticks after the snow started; land beyond it, which only Almanac's forming reaches, at
-2,028 + 11,781 = 13,809 ticks. `farSnowChangedTick` is the change, not the start of the snowfall.
-
-`AlmanacApi.farSnowChangedTick(Level)` (0.1.3, `OptionalLong`) is the overworld game tick at which that change began:
-a melt is `(level.getGameTime() - tick) / thawTicks` of the way through, and snow forming
-`(level.getGameTime() - tick) / formingTicks`, so a player who joins or relogs mid-melt sees it carry on rather than
-start again, and every player sees the same progress. It is saved with the season, so a server restart isn't a
-change. It comes from the server in its own payload, sent on joining and just before the state that changes it, so
-it is already new inside the `FAR_CLIMATE_CHANGED` listener for that change. Empty on servers older than 0.1.3:
-start the animation at the event then. Tiles arriving or being dropped don't change it, and since 0.1.3.1 neither does snow getting deeper or shallower in a climate that keeps some, since the far
-rule only asks whether a climate has snow. That still fires the event, with the same far snow lines as before. (0.1.3
-moved the tick then too, so a player who rejoined during a melt resumed it late.)
+`AlmanacApi.farSnowChangedTick(Level)` (0.1.3, `OptionalLong`) is the overworld game tick at which what far terrain
+shows last changed everywhere: a new shown sub-season, snow appearing or going in a climate, the native snow setting,
+or the map turned on or off. It is saved with the season, so a server restart isn't a change. It comes from the server
+in its own payload, sent on joining and just before the state that changes it, so it is already new inside the
+`FAR_CLIMATE_CHANGED` listener for that change. Tiles arriving or being dropped don't change it, and since 0.1.3.1
+neither does snow getting deeper or shallower in a climate that keeps some, since the far rule only asks whether a
+climate has snow; that still fires the event, with the same far snow lines as before. Every LiteLights before 1.0.7
+asks for it each frame until it answers, so it stays while those are about (`docs/INTEGRATION.md`).
 
 ### Knowing when to fill again
 
@@ -328,10 +383,9 @@ coordinates, both ends included (`minX, minZ, maxX, maxZ`), and which kinds of a
 - Joining fires one event per tile as the map arrives (241 at the defaults, over the first few seconds),
   so coalesce: mark the changed area and fill once per frame.
 - **Telling a season change from map data arriving**: only the row "the shown state changes" (everywhere, `snowLines`
-  alone) is the far land itself changing, the one to animate: a melt over `thawTicks`, snow forming over
-  `formingTicks`. Every other kind (tiles arriving or
-  dropped, the map switched on or off, colours, climate) is the map filling in or a separate kind of answer, and
-  should show at once.
+  alone) is the far land itself changing. Up to 0.1.5 that was the change to animate; since 0.1.6 fill again and let
+  the cover say how much snow lies. Every other kind (tiles arriving or dropped, the map switched on or off, colours,
+  climate) is the map filling in or a separate kind of answer, and should show at once.
 - The level passed is the client's current one, which can be the Nether or the End, where every answer is unknown:
   look up with the overworld's level when the player is back.
 - `AlmanacEvents.SEASON_CHANGED` still fires as before; far-terrain users need only `FAR_CLIMATE_CHANGED`.

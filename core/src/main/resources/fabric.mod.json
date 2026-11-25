@@ -1,0 +1,58 @@
+{
+    "schemaVersion": 1,
+    "id": "almanac",
+    "version": "${version}",
+    "name": "Almanac",
+    "description": "Seasons and regional weather for the overworld: twelve sub-seasons, storms that form, move with the wind and pass, seasonal rain and snow by climate, snow in layers, and seasonal grass and leaf colours. Needed on the server and on every player's game: a server running it refuses players without it.",
+    "authors": [
+        "THENATHE"
+    ],
+    "contributors": [
+        "Idea by Fabric Seasons (lucaargolo): biome edits in memory, tracking weather-placed snow",
+        "Idea by Serene Seasons (Glitchfiend): sub-seasons and rain timing",
+        "Idea by Immersive Snow Reloaded (Straywave and contributors): snow recalculation on chunk load",
+        "Idea by Create: Sky: regional weather with travelling storms, nothing falling above a storm's cloud top, a local /weather",
+        "Idea by Climate: Clouds, Storms, Technology: regional, moving weather",
+        "Idea by ProtoManly's Weather: regional, moving weather; storms worked out alike on the server and every client, from forming to fading; snow caught up from the storms that passed",
+        "Idea by Simple Clouds: clouds grouped where the weather is"
+    ],
+    "license": "MIT",
+    "icon": "assets/almanac/icon.png",
+    "environment": "*",
+    "entrypoints": {
+        "main": [
+            "com.thenathe.almanac.Almanac"
+        ],
+        "client": [
+            "com.thenathe.almanac.client.AlmanacClient"
+        ],
+        "modmenu": [
+            "com.thenathe.almanac.client.AlmanacModMenu"
+        ],
+        "almanac:module": [
+            "com.thenathe.almanac.snow.SnowModule",
+            "com.thenathe.almanac.weather.WeatherModule"
+        ]
+    },
+    "mixins": [
+        "almanac.mixins.json",
+        {
+            "config": "almanac.client.mixins.json",
+            "environment": "client"
+        }
+    ],
+    "depends": {
+        "fabricloader": ">=0.19.5",
+        "fabric-api": ">=0.165.2",
+        "minecraft": ">=26.3 <26.4",
+        "java": ">=25"
+    },
+    "suggests": {
+        "modmenu": "*"
+    },
+    "breaks": {
+        "seasons": "*",
+        "sereneseasons": "*",
+        "immersive_snow_reloaded": "*"
+    }
+}

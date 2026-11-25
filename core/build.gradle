@@ -1,0 +1,81 @@
+// The core module: everything in Almanac that isn't a module of its own. It implements the internal
+// API (:api) and builds the one jar Almanac ships, merging :api and :snow into it. Its client half
+// (the client source set, src/client) sees the rest of core; nothing in src/main can see the client
+// half, or Minecraft's client classes, so nothing a dedicated server loads can reach them.
+evaluationDependsOn(':api')
+evaluationDependsOn(':snow')
+evaluationDependsOn(':weather')
+
+base { archivesName = 'almanac' }
+
+// Dev runs load the modules' classes and resources as the one mod.
+loom {
+    mods {
+        almanac {
+            sourceSet sourceSets.main
+            sourceSet sourceSets.client
+            sourceSet 'main', ':api'
+            sourceSet 'main', ':snow'
+            sourceSet 'main', ':weather'
+        }
+    }
+}
+
+dependencies {
+    implementation project(':api')
+    // The snow module starts through the almanac:module entrypoint and is reached only through the
+    // internal API, so core never compiles against it; it is on the runtime classpath for dev runs.
+    runtimeOnly project(':snow')
+    runtimeOnly project(':weather')
+    // Mod Menu is optional at runtime; its entrypoint only loads when Mod Menu is installed.
+    clientCompileOnly 'com.terraformersmc:modmenu:21.0.0'
+
+    // The tests that check the modules agree with core (the far rule against the climate table, the saved files of
+    // both, the weather log against the event reach) see the modules too.
+    testImplementation project(':snow')
+    testImplementation project(':weather')
+    testImplementation platform('org.junit:junit-bom:5.11.4')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+processResources {
+    inputs.property 'version', project.version
+    filesMatching('fabric.mod.json') { expand(version: project.version) }
+}
+
+java {
+    withSourcesJar()
+}
+
+// The one jar: core, the API and every module, with one fabric.mod.json (core's). Two modules
+// shipping the same file is a mistake, so a duplicate fails the build.
+jar {
+    from(project(':api').sourceSets.main.output)
+    from(project(':snow').sourceSets.main.output)
+    from(project(':weather').sourceSets.main.output)
+    duplicatesStrategy = DuplicatesStrategy.FAIL
+    from(rootProject.file('LICENSE'))
+    destinationDirectory = rootProject.layout.buildDirectory.dir('libs')
+}
+
+sourcesJar {
+    from(project(':api').sourceSets.main.allSource)
+    from(project(':snow').sourceSets.main.allSource)
+    from(project(':weather').sourceSets.main.allSource)
+    duplicatesStrategy = DuplicatesStrategy.FAIL
+    destinationDirectory = rootProject.layout.buildDirectory.dir('libs')
+}
+
+// The unit tests cover both halves.
+sourceSets {
+    test {
+        compileClasspath += sourceSets.client.output + sourceSets.client.compileClasspath
+        runtimeClasspath += sourceSets.client.output + sourceSets.client.runtimeClasspath
+    }
+}
+
+test {
+    useJUnitPlatform()
+    maxHeapSize = '1G'
+}

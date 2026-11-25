@@ -1,0 +1,247 @@
+package com.thenathe.almanac.snow;
+
+import com.mojang.serialization.Codec;
+import com.mojang.serialization.codecs.RecordCodecBuilder;
+import com.thenathe.almanac.api.Climate;
+import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
+import it.unimi.dsi.fastutil.ints.IntArrayList;
+import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.EnumSet;
+import java.util.List;
+import java.util.Optional;
+import java.util.Set;
+import java.util.stream.IntStream;
+import net.minecraft.core.BlockPos;
+import org.jspecify.annotations.Nullable;
+
+/**
+ * Almanac's record for one chunk, saved with the chunk as a Fabric data attachment ({@code almanac:snow}):
+ * <ul>
+ *   <li>when the chunk was last brought up to date, to which {@link SnowState}, and which climates its surface held
+ *   then (since 0.1.3);</li>
+ *   <li>snow and ice the season put there (seasonal snowfall, freezing and catch-up), which may melt again;</li>
+ *   <li>snow layers and snow blocks players placed, which never melt.</li>
+ * </ul>
+ * Snow and ice the biome's real climate would bring aren't recorded: they are native, like world generation's.
+ *
+ * <p>Positions are packed as {@code x | z << 4 | y << 8} with x and z inside the chunk. Every field has a default and
+ * is read on its own, so a record from an older version keeps loading; {@link #FORMAT} says which version wrote it.
+ * Fields an older version saved that this one no longer has are skipped when read and left out of the next save: the
+ * thaw window ({@code thaw}) that 0.1.3 to 0.1.5 kept for a chunk's own thaw, which nothing has gone by since 0.1.6.
+ * Format 3 (0.3.0) saves the state's snow depths and ice covers instead of whole layers ({@link SnowState}); a state
+ * saved with whole layers reads as the amounts it stood for.
+ * The record is changed in place, so whoever changes it marks the chunk unsaved.
+ */
+public final class ChunkSnow {
+    public static final int FORMAT = 3;
+    public static final long NEVER = Long.MIN_VALUE;
+
+    private long updated = NEVER;
+    private @Nullable SnowState state;
+    /**
+     * The base climates of the surface and the recorded spots when the chunk was brought up to {@link #state}, or null
+     * when not known (records from before 0.1.3, which compare the whole state as before).
+     */
+    private @Nullable Set<Climate> climates;
+    /** Seasonal snow by position: how many of the layers there the season added. */
+    private final Int2IntOpenHashMap modSnow = new Int2IntOpenHashMap();
+    private final IntOpenHashSet modIce = new IntOpenHashSet();
+    private final IntOpenHashSet playerSnow = new IntOpenHashSet();
+
+    public static int pack(BlockPos pos) {
+        return pack(pos.getX() & 15, pos.getY(), pos.getZ() & 15);
+    }
+
+    public static int pack(int localX, int y, int localZ) {
+        return localX | localZ << 4 | y << 8;
+    }
+
+    public static int localX(int packed) {
+        return packed & 15;
+    }
+
+    public static int localZ(int packed) {
+        return packed >> 4 & 15;
+    }
+
+    public static int y(int packed) {
+        return packed >> 8;
+    }
+
+    /** The game time this chunk was last brought up to date, or {@link #NEVER}. */
+    public long updated() {
+        return updated;
+    }
+
+    public @Nullable SnowState state() {
+        return state;
+    }
+
+    /** The climates the chunk held when it was last brought up to date, or null when not known. */
+    public @Nullable Set<Climate> climates() {
+        return climates;
+    }
+
+    /**
+     * Whether the chunk needs nothing for {@code current}: the same frame ({@link SnowState#sameFrame}) and the same
+     * amounts for the climates it holds.
+     */
+    public boolean isUpTo(SnowState current) {
+        return state != null && current.sameFrame(state, climates) && current.sameAmounts(state, climates);
+    }
+
+    /**
+     * The chunk needs nothing for {@code current} after all: it counts as brought up to it, holding the climates it
+     * held before.
+     */
+    public void restamp(SnowState current) {
+        state = current;
+    }
+
+    /** Whether the season put snow or ice anywhere in the chunk that is still recorded. */
+    public boolean holdsSeasonalSnowOrIce() {
+        return !modSnow.isEmpty() || !modIce.isEmpty();
+    }
+
+    /** @param held the base climates of the chunk's surface and recorded spots */
+    public void markUpdated(SnowState current, Set<Climate> held, long gameTime) {
+        state = current;
+        Set<Climate> copy = EnumSet.noneOf(Climate.class);
+        copy.addAll(held);
+        climates = Collections.unmodifiableSet(copy);
+        updated = gameTime;
+    }
+
+    /**
+     * The chunk's snow or ice is changing on its way to another state, so it no longer matches the one it last reached.
+     * Until it is brought up to date again it counts as never brought up to date: otherwise a chunk left part way
+     * through a thaw (unloaded, or still waiting when the season moved on) would count as up to date the next time
+     * the same state came round, a year later say, and keep its half-melted snow.
+     */
+    public void leftLastState() {
+        state = null;
+        climates = null;
+    }
+
+    public int modSnowLayers(int packed) {
+        return modSnow.get(packed);
+    }
+
+    public void setModSnowLayers(int packed, int layers) {
+        if (layers > 0) {
+            modSnow.put(packed, layers);
+        } else {
+            modSnow.remove(packed);
+        }
+    }
+
+    public int[] modSnowPositions() {
+        return modSnow.keySet().toIntArray();
+    }
+
+    public boolean isModIce(int packed) {
+        return modIce.contains(packed);
+    }
+
+    public void setModIce(int packed, boolean seasonal) {
+        if (seasonal) {
+            modIce.add(packed);
+        } else {
+            modIce.remove(packed);
+        }
+    }
+
+    public int[] modIcePositions() {
+        return modIce.toIntArray();
+    }
+
+    public boolean isPlayerSnow(int packed) {
+        return playerSnow.contains(packed);
+    }
+
+    public void setPlayerSnow(int packed, boolean placedByPlayer) {
+        if (placedByPlayer) {
+            playerSnow.add(packed);
+        } else {
+            playerSnow.remove(packed);
+        }
+    }
+
+    public int[] playerSnowPositions() {
+        return playerSnow.toIntArray();
+    }
+
+    /** Forgets everything recorded at a position, for when the block there is gone or no longer snow or ice. */
+    public void forget(int packed) {
+        modSnow.remove(packed);
+        modIce.remove(packed);
+        playerSnow.remove(packed);
+    }
+
+    private static final int[] NONE = new int[0];
+    private static final Codec<int[]> INT_ARRAY = Codec.INT_STREAM.xmap(IntStream::toArray, IntStream::of);
+
+    private record Saved(int format, long updated, Optional<SnowState> state, Optional<List<String>> climates,
+                         int[] modSnow, int[] modSnowLayers, int[] modIce, int[] playerSnow) {
+        static final Codec<Saved> CODEC = RecordCodecBuilder.create(instance -> instance.group(
+                Codec.INT.lenientOptionalFieldOf("format", FORMAT).forGetter(Saved::format),
+                Codec.LONG.lenientOptionalFieldOf("updated", NEVER).forGetter(Saved::updated),
+                SnowState.CODEC.lenientOptionalFieldOf("state").forGetter(Saved::state),
+                Codec.STRING.listOf().lenientOptionalFieldOf("climates").forGetter(Saved::climates),
+                INT_ARRAY.lenientOptionalFieldOf("mod_snow", NONE).forGetter(Saved::modSnow),
+                INT_ARRAY.lenientOptionalFieldOf("mod_snow_layers", NONE).forGetter(Saved::modSnowLayers),
+                INT_ARRAY.lenientOptionalFieldOf("mod_ice", NONE).forGetter(Saved::modIce),
+                INT_ARRAY.lenientOptionalFieldOf("player_snow", NONE).forGetter(Saved::playerSnow)
+        ).apply(instance, Saved::new));
+    }
+
+    public static final Codec<ChunkSnow> CODEC = Saved.CODEC.xmap(ChunkSnow::fromSaved, ChunkSnow::toSaved);
+
+    private static ChunkSnow fromSaved(Saved saved) {
+        ChunkSnow record = new ChunkSnow();
+        record.updated = saved.updated();
+        record.state = saved.state().orElse(null);
+        record.climates = saved.climates().map(ChunkSnow::readClimates).orElse(null);
+        int[] positions = saved.modSnow();
+        int[] layers = saved.modSnowLayers();
+        for (int index = 0; index < positions.length; index++) {
+            // A layer count that is missing or out of range counts as one layer: the least that can melt.
+            int count = index < layers.length ? layers[index] : 1;
+            record.modSnow.put(positions[index], count >= 1 && count <= 8 ? count : 1);
+        }
+        record.modIce.addAll(IntArrayList.wrap(saved.modIce()));
+        record.playerSnow.addAll(IntArrayList.wrap(saved.playerSnow()));
+        return record;
+    }
+
+    /** Climates by ID; one this version doesn't know makes the whole set unknown, so nothing is skipped wrongly. */
+    private static @Nullable Set<Climate> readClimates(List<String> ids) {
+        Set<Climate> read = EnumSet.noneOf(Climate.class);
+        for (String id : ids) {
+            Optional<Climate> climate = Arrays.stream(Climate.values()).filter(each -> each.id().equals(id)).findFirst();
+            if (climate.isEmpty()) {
+                return null;
+            }
+            read.add(climate.get());
+        }
+        return Collections.unmodifiableSet(read);
+    }
+
+    private Saved toSaved() {
+        int[] positions = modSnow.keySet().toIntArray();
+        Arrays.sort(positions);
+        int[] layers = new int[positions.length];
+        for (int index = 0; index < positions.length; index++) {
+            layers[index] = modSnow.get(positions[index]);
+        }
+        int[] ice = modIce.toIntArray();
+        Arrays.sort(ice);
+        int[] player = playerSnow.toIntArray();
+        Arrays.sort(player);
+        Optional<List<String>> climateIds = Optional.ofNullable(climates)
+                .map(held -> held.stream().sorted().map(Climate::id).toList());
+        return new Saved(FORMAT, updated, Optional.ofNullable(state), climateIds, positions, layers, ice, player);
+    }
+}

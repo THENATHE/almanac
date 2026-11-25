@@ -1,0 +1,4 @@
+// Almanac's public API (com.thenathe.almanac.api, what other mods read) and its internal API
+// (com.thenathe.almanac.internal, what the modules reach each other through): interfaces and plain
+// data. Never shipped alone: :core merges it into the one jar.
+base { archivesName = 'almanac-api' }

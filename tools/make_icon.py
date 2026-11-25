@@ -1,7 +1,7 @@
 """Draws Almanac's icon: a 32 x 32 pixel-art tree with one season per quarter of its canopy.
 
 Usage: python3 tools/make_icon.py <icon.png> <preview.png>
-Writes the 128 x 128 icon (src/main/resources/assets/almanac/icon.png) and a 384 x 384 preview.
+Writes the 128 x 128 icon (core/src/main/resources/assets/almanac/icon.png) and a 384 x 384 preview.
 """
 import math
 import random

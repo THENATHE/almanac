@@ -6,3 +6,5 @@ pluginManagement {
     }
 }
 rootProject.name = 'almanac'
+
+include 'api', 'core', 'snow', 'weather'

@@ -1,0 +1,24 @@
+// The weather module (docs/ARCHITECTURE.md, "Modules"): regional weather, from storms worked out of a weather seed
+// and the time. It compiles against Almanac's internal API and never against :core or :snow, so the build refuses a
+// reach past the API. Never shipped alone: :core merges it into the one jar.
+base { archivesName = 'almanac-weather' }
+
+dependencies {
+    implementation project(':api')
+
+    testImplementation platform('org.junit:junit-bom:5.11.4')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+test {
+    useJUnitPlatform()
+    maxHeapSize = '1G'
+}
+
+// ./gradlew :weather:test --tests '*StormPictures' -PalmanacPictures=<folder> draws the storm maps and the rain share
+// chart into that folder; without the property that test is skipped.
+test {
+    systemProperty 'java.awt.headless', 'true'
+    systemProperty 'almanac.pictures', findProperty('almanacPictures') ?: ''
+}

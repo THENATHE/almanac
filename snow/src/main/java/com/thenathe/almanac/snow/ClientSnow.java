@@ -1,0 +1,114 @@
+package com.thenathe.almanac.snow;
+
+import com.thenathe.almanac.api.Climate;
+import com.thenathe.almanac.api.SnowClocks;
+import com.thenathe.almanac.internal.AlmanacModule;
+import com.thenathe.almanac.internal.Services;
+import com.thenathe.almanac.internal.WeatherView;
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
+import it.unimi.dsi.fastutil.longs.LongSet;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.NbtOps;
+import net.minecraft.world.level.Level;
+import org.jspecify.annotations.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+/**
+ * A client's snow by area under regional weather (from 0.4.0), for far terrain and anything else that wants the snow
+ * of land the player hasn't loaded: the server's weather log and the client's own weather view, worked out on the
+ * client's background thread the same way the server works out loaded land, so no snow comes over the network but
+ * the log. A place is worked out when it is first asked about, and answered from then on; places no longer asked
+ * about are let go.
+ */
+final class ClientSnow {
+    private static final Logger LOGGER = LoggerFactory.getLogger(AlmanacModule.MOD_ID);
+    /** How many snow nodes a client keeps worked out at most: about 11 km square. */
+    static final int MOST_NODES = 2_048;
+    /** Client ticks after its last asking that a node is let go. */
+    static final int FORGET_AFTER = 600;
+
+    private static volatile @Nullable ClientSnow current;
+
+    private final SnowLog log;
+    private final SnowNodes nodes = new SnowNodes();
+    /** Each node asked about, and the client tick it was last asked about. Any thread adds to it. */
+    private final Map<Long, Long> asked = new ConcurrentHashMap<>();
+    private volatile long tick;
+
+    private ClientSnow(SnowLog log) {
+        this.log = log;
+    }
+
+    static @Nullable ClientSnow get() {
+        return current;
+    }
+
+    /** The server sent its weather log (a sub-season, a setting, the weather changed, or the player joined). */
+    static void received(CompoundTag saved) {
+        SnowLog read = SnowLog.CODEC.parse(NbtOps.INSTANCE, saved.getCompoundOrEmpty("log"))
+                .resultOrPartial(problem -> LOGGER.warn("Almanac: the server's weather log didn't read: {}", problem))
+                .orElse(null);
+        if (read == null) {
+            return;
+        }
+        read.setLegacyMaxLayers(saved.getIntOr("legacy_max_layers", 1));
+        current = new ClientSnow(read);
+    }
+
+    /** What the server sends: the log, and the snow height an older Almanac read its oldest segments with. */
+    static CompoundTag forClients(SnowLog log) {
+        CompoundTag saved = new CompoundTag();
+        saved.put("log", SnowLog.CODEC.encodeStart(NbtOps.INSTANCE, log).getOrThrow());
+        saved.putInt("legacy_max_layers", log.legacyMaxLayers());
+        return saved;
+    }
+
+    /** The log the server sent. */
+    SnowLog log() {
+        return log;
+    }
+
+    static void disconnected() {
+        current = null;
+    }
+
+    /** Once a client tick: works out the nodes asked about lately, and lets go of the others. */
+    void tick(Level level) {
+        tick++;
+        WeatherView weather = Services.weather().view(level);
+        if (weather == null) {
+            return;
+        }
+        asked.values().removeIf(last -> tick - last > FORGET_AFTER);
+        LongSet wanted = new LongOpenHashSet();
+        for (Long key : asked.keySet()) {
+            if (wanted.size() >= MOST_NODES) {
+                break;
+            }
+            wanted.add(key.longValue());
+        }
+        if (!wanted.isEmpty()) {
+            nodes.refresh(log, weather, wanted, level.getGameTime(), maxLayers());
+        }
+    }
+
+    private int maxLayers() {
+        SnowLog.Segment last = log.segments().isEmpty() ? null : log.segments().getLast();
+        SnowClocks clocks = last == null ? log.legacyClocks() : log.clocksOf(last);
+        return clocks.maxLayers();
+    }
+
+    /** Each climate's snow depth at a column now; null until its nodes are worked out, which asking starts. */
+    @Nullable Map<Climate, Double> depthsAt(double x, double z, long gameTime) {
+        LongSet around = new LongOpenHashSet(4);
+        SnowField.nodesOf(((int) Math.floor(x)) >> 4, ((int) Math.floor(z)) >> 4, around);
+        long now = tick;
+        for (long key : around) {
+            asked.put(key, now);
+        }
+        return nodes.field().depthsAt(x, z, gameTime);
+    }
+}

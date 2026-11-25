@@ -1,0 +1,30 @@
+{
+    "required": true,
+    "minVersion": "0.8",
+    "package": "com.thenathe.almanac.mixin",
+    "compatibilityLevel": "JAVA_25",
+    "mixins": [
+        "BiomeAccessor",
+        "BlockItemMixin",
+        "LevelMixin",
+        "LevelWeatherAccessor",
+        "PlayerListMixin",
+        "ServerLevelMixin",
+        "weather.BeehiveBlockEntityMixin",
+        "weather.BeeMixin",
+        "weather.BeePollinateGoalMixin",
+        "weather.FireBlockMixin",
+        "weather.FoxMixin",
+        "weather.FoxShelterMixin",
+        "weather.LightningRodBlockMixin",
+        "weather.MonsterMixin",
+        "weather.PandaMixin",
+        "weather.PlayerSleepMixin",
+        "weather.ServerPlayerSleepMixin",
+        "weather.WeatherCheckMixin",
+        "weather.WeatherCommandMixin"
+    ],
+    "injectors": {
+        "defaultRequire": 1
+    }
+}

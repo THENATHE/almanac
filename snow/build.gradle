@@ -1,0 +1,17 @@
+// The snow module (docs/ARCHITECTURE.md, "Modules"). It compiles against Almanac's internal API and
+// never against :core, so the build refuses a reach past the API. Never shipped alone: :core merges
+// it into the one jar.
+base { archivesName = 'almanac-snow' }
+
+dependencies {
+    implementation project(':api')
+
+    testImplementation platform('org.junit:junit-bom:5.11.4')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+test {
+    useJUnitPlatform()
+    maxHeapSize = '1G'
+}

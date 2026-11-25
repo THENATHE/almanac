@@ -1,48 +1,45 @@
-plugins { id 'net.fabricmc.fabric-loom' version '1.17.20' }
-
-version = project.mod_version
-group = 'com.thenathe'
-base { archivesName = 'almanac' }
-
-repositories {
-    mavenCentral()
-    maven { url = 'https://maven.terraformersmc.com/releases/' }
+// Almanac is one mod in one jar, built from modules (docs/ARCHITECTURE.md, "Modules"):
+//   api   the public API (com.thenathe.almanac.api) and the internal API the modules talk through
+//   core  everything that isn't a module of its own; implements the internal API and builds the jar
+//   snow  the snow engine; compiles against api only
+//   weather  regional weather: the storms, the wind and their record; compiles against api only
+// core merges the three into build/libs/almanac-<version>.jar, with the one mod id almanac.
+plugins {
+    id 'base'
+    id 'net.fabricmc.fabric-loom' version '1.17.20' apply false
 }
 
-dependencies {
-    minecraft 'com.mojang:minecraft:26.3'
-    implementation 'net.fabricmc:fabric-loader:0.19.5'
-    implementation 'net.fabricmc.fabric-api:fabric-api:0.165.2+26.3'
-    // Mod Menu is optional at runtime; its entrypoint only loads when Mod Menu is installed.
-    compileOnly 'com.terraformersmc:modmenu:21.0.0'
+subprojects {
+    apply plugin: 'net.fabricmc.fabric-loom'
 
-    testImplementation platform('org.junit:junit-bom:5.11.4')
-    testImplementation 'org.junit.jupiter:junit-jupiter'
-    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
-}
+    // Every subproject's main source set sees only the Minecraft classes a dedicated server has; client code lives
+    // in a client source set (core's src/client), which can see main but not the other way round.
+    loom {
+        splitEnvironmentSourceSets()
+    }
 
-processResources {
-    inputs.property 'version', project.version
-    filesMatching('fabric.mod.json') { expand(version: project.version) }
-}
+    version = rootProject.property('mod_version')
+    group = 'com.thenathe'
 
-tasks.withType(JavaCompile).configureEach {
-    options.encoding = 'UTF-8'
-    options.release = 25
-    options.compilerArgs << '-Xlint:deprecation'
-}
+    repositories {
+        mavenCentral()
+        maven { url = 'https://maven.terraformersmc.com/releases/' }
+    }
 
-java {
-    withSourcesJar()
-    sourceCompatibility = JavaVersion.VERSION_25
-    targetCompatibility = JavaVersion.VERSION_25
-}
+    dependencies {
+        minecraft 'com.mojang:minecraft:26.3'
+        implementation 'net.fabricmc:fabric-loader:0.19.5'
+        implementation 'net.fabricmc.fabric-api:fabric-api:0.165.2+26.3'
+    }
 
-jar {
-    from('LICENSE')
-}
+    tasks.withType(JavaCompile).configureEach {
+        options.encoding = 'UTF-8'
+        options.release = 25
+        options.compilerArgs << '-Xlint:deprecation'
+    }
 
-test {
-    useJUnitPlatform()
-    maxHeapSize = '1G'
+    java {
+        sourceCompatibility = JavaVersion.VERSION_25
+        targetCompatibility = JavaVersion.VERSION_25
+    }
 }
