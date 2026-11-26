@@ -124,6 +124,12 @@ public final class SnowModule implements AlmanacModule, Snow {
     }
 
     @Override
+    public @Nullable Map<Climate, Integer> farLayers() {
+        SeasonSnow snow = SeasonSnow.get();
+        return snow == null ? null : snow.farLayers();
+    }
+
+    @Override
     public @Nullable String describeQueues() {
         SnowUpdates updates = SnowUpdates.get();
         return updates == null ? null : updates.describeQueues();
@@ -152,10 +158,10 @@ public final class SnowModule implements AlmanacModule, Snow {
     }
 
     @Override
-    public void clientTicked(Level level) {
+    public void clientTicked(Level level, double cameraX, double cameraZ) {
         ClientSnow snow = ClientSnow.get();
         if (snow != null && level.dimension() == Level.OVERWORLD) {
-            snow.tick(level);
+            snow.tick(level, cameraX, cameraZ);
         }
     }
 

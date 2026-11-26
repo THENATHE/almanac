@@ -7,8 +7,11 @@ import com.thenathe.almanac.internal.Services;
 import com.thenathe.almanac.internal.WeatherView;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.longs.LongSet;
+import java.util.Arrays;
+import java.util.Collection;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.NbtOps;
 import net.minecraft.world.level.Level;
@@ -21,7 +24,7 @@ import org.slf4j.LoggerFactory;
  * of land the player hasn't loaded: the server's weather log and the client's own weather view, worked out on the
  * client's background thread the same way the server works out loaded land, so no snow comes over the network but
  * the log. A place is worked out when it is first asked about, and answered from then on; places no longer asked
- * about are let go.
+ * about are let go. When more are asked about than it keeps, it keeps those nearest the camera.
  */
 final class ClientSnow {
     private static final Logger LOGGER = LoggerFactory.getLogger(AlmanacModule.MOD_ID);
@@ -36,6 +39,12 @@ final class ClientSnow {
     private final SnowNodes nodes = new SnowNodes();
     /** Each node asked about, and the client tick it was last asked about. Any thread adds to it. */
     private final Map<Long, Long> asked = new ConcurrentHashMap<>();
+    /** Set when a node is first asked about or let go, so the nodes worked out are chosen again. */
+    private final AtomicBoolean askedChanged = new AtomicBoolean(true);
+    /** The nodes worked out: every node asked about, or the {@link #MOST_NODES} of them nearest the camera. */
+    private LongSet chosen = new LongOpenHashSet();
+    /** The node the camera was at when {@link #chosen} was chosen. */
+    private long chosenAround = Long.MIN_VALUE;
     private volatile long tick;
 
     private ClientSnow(SnowLog log) {
@@ -75,24 +84,62 @@ final class ClientSnow {
         current = null;
     }
 
-    /** Once a client tick: works out the nodes asked about lately, and lets go of the others. */
-    void tick(Level level) {
+    /** Once a client tick: works out the nodes asked about lately, nearest the camera first, and lets go of the others. */
+    void tick(Level level, double cameraX, double cameraZ) {
         tick++;
         WeatherView weather = Services.weather().view(level);
         if (weather == null) {
             return;
         }
-        asked.values().removeIf(last -> tick - last > FORGET_AFTER);
-        LongSet wanted = new LongOpenHashSet();
-        for (Long key : asked.keySet()) {
-            if (wanted.size() >= MOST_NODES) {
+        if (asked.values().removeIf(last -> tick - last > FORGET_AFTER)) {
+            askedChanged.set(true);
+        }
+        long around = SnowArea.key(Math.floorDiv((int) Math.floor(cameraX), SnowArea.NODE_SPACING),
+                Math.floorDiv((int) Math.floor(cameraZ), SnowArea.NODE_SPACING));
+        if (askedChanged.getAndSet(false) || around != chosenAround) {
+            chosen = nearest(asked.keySet(), cameraX, cameraZ, MOST_NODES);
+            chosenAround = around;
+        }
+        if (!chosen.isEmpty()) {
+            nodes.refresh(log, weather, chosen, level.getGameTime(), maxLayers());
+        }
+    }
+
+    /**
+     * At most {@code most} of the nodes, nearest a place first. Up to 1.1.0 the first {@code most} in the order the
+     * map kept them were taken, which beside far terrain asking about more than that (LiteLights asks 16,384) left
+     * most of the land round the player unknown, scattered by the keys' hashes.
+     */
+    static LongSet nearest(Collection<Long> keys, double x, double z, int most) {
+        long[] all = new long[keys.size()];
+        int count = 0;
+        for (Long key : keys) {
+            if (count == all.length) {
                 break;
             }
-            wanted.add(key.longValue());
+            all[count++] = key;
         }
-        if (!wanted.isEmpty()) {
-            nodes.refresh(log, weather, wanted, level.getGameTime(), maxLayers());
+        if (count <= most) {
+            LongSet every = new LongOpenHashSet(count);
+            for (int index = 0; index < count; index++) {
+                every.add(all[index]);
+            }
+            return every;
         }
+        // Each node's squared distance from the place (blocks squared over 256) above its index, so one sort orders them.
+        long[] order = new long[count];
+        for (int index = 0; index < count; index++) {
+            double dx = SnowArea.keyX(all[index]) * (double) SnowArea.NODE_SPACING - x;
+            double dz = SnowArea.keyZ(all[index]) * (double) SnowArea.NODE_SPACING - z;
+            long distance = (long) Math.min(Integer.MAX_VALUE, (dx * dx + dz * dz) / 256.0);
+            order[index] = distance << 32 | index;
+        }
+        Arrays.sort(order);
+        LongSet nearest = new LongOpenHashSet(most);
+        for (int index = 0; index < most; index++) {
+            nearest.add(all[(int) order[index]]);
+        }
+        return nearest;
     }
 
     private int maxLayers() {
@@ -107,7 +154,9 @@ final class ClientSnow {
         SnowField.nodesOf(((int) Math.floor(x)) >> 4, ((int) Math.floor(z)) >> 4, around);
         long now = tick;
         for (long key : around) {
-            asked.put(key, now);
+            if (asked.put(key, now) == null) {
+                askedChanged.set(true);
+            }
         }
         return nodes.field().depthsAt(x, z, gameTime);
     }

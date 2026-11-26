@@ -21,10 +21,12 @@ public record WeatherRecord(long seed, List<Era> eras, List<Event> events, List<
 
     /**
      * A stretch of the season from {@code start}: its sub-season, which storm maths it ran on ({@code version} 0 when
-     * regional weather was off and vanilla's weather ran), and the rain shares that decided which climates its storms
-     * reached, in percent.
+     * regional weather was off and vanilla's weather ran), the rain shares that decided which climates its storms
+     * reached, in percent, and the share of time every place was to be under rain, in percent ({@code rainShare},
+     * from 1.1.0; 0 where the era doesn't record one, as in every era before it, whose maths had its share built in).
      */
-    public record Era(long start, SubSeason subSeason, int version, int hotShare, int temperateShare, int coldShare) {
+    public record Era(long start, SubSeason subSeason, int version, int hotShare, int temperateShare, int coldShare,
+                      int rainShare) {
         public int share(Climate climate) {
             return switch (climate) {
                 case HOT -> hotShare;
@@ -39,7 +41,8 @@ public record WeatherRecord(long seed, List<Era> eras, List<Event> events, List<
 
         public boolean sameWeather(Era other) {
             return subSeason == other.subSeason && version == other.version && hotShare == other.hotShare
-                    && temperateShare == other.temperateShare && coldShare == other.coldShare;
+                    && temperateShare == other.temperateShare && coldShare == other.coldShare
+                    && rainShare == other.rainShare;
         }
     }
 

@@ -6,6 +6,7 @@ import com.thenathe.almanac.api.SubSeason;
 import com.thenathe.almanac.internal.SeasonTick;
 import com.thenathe.almanac.internal.Services;
 import com.thenathe.almanac.internal.SnowReading;
+import com.thenathe.almanac.internal.SnowNow;
 import com.thenathe.almanac.internal.SnowSettings;
 import com.thenathe.almanac.internal.WeatherView;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
@@ -37,6 +38,8 @@ final class SeasonSnow {
     private final SnowNodes nodes = new SnowNodes();
     private final LongSet wanted = new LongOpenHashSet();
     private SnowState state;
+    /** The layers begun in each climate as far terrain counts them ({@link #farLayers}). */
+    private Map<Climate, Integer> farLayers = Map.of();
     private SnowReading reading;
     private @Nullable SnowField field;
     private long fieldTick;
@@ -134,6 +137,31 @@ final class SeasonSnow {
         }
         state = new SnowState(subSeason, depths, ice, clocks.maxLayers(), settings.nativeSnowMelts(), snowHeight,
                 now.climateSettings(), now.noSeasonalSnow());
+        farLayers = farLayers(state, regional ? log : null, gameTime);
+    }
+
+    /**
+     * The layers begun in each climate as far terrain counts them: the state's, and under regional weather at least
+     * one wherever the climate's snow may lie anywhere ({@link SnowLog#snowMayLie}). The state's are the deepest on
+     * loaded land, and up to 1.1.0 far terrain went by those alone, so while loaded land was bare the far snow lines
+     * gave no season's snow even where storms had laid it far away, and far terrain couldn't show it at all. The far
+     * snow lines now say where the season's snow can lie, and the snow at each place (snowLayersAt) how much does.
+     */
+    static Map<Climate, Integer> farLayers(SnowNow state, @Nullable SnowLog regionalLog, long gameTime) {
+        Map<Climate, Integer> layers = new EnumMap<>(Climate.class);
+        for (Climate climate : Climate.values()) {
+            int begun = state.layers(climate);
+            if (begun == 0 && regionalLog != null && regionalLog.snowMayLie(climate, gameTime)) {
+                begun = 1;
+            }
+            layers.put(climate, begun);
+        }
+        return layers;
+    }
+
+    /** The layers begun in each climate as far terrain counts them (see {@link #farLayers(SnowNow, SnowLog, long)}). */
+    Map<Climate, Integer> farLayers() {
+        return farLayers;
     }
 
     /** Whether the snow differs from place to place: regional weather decides where it falls. */

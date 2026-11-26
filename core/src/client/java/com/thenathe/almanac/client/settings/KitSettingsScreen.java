@@ -903,6 +903,16 @@ public final class KitSettingsScreen extends Screen {
         }
     }
 
+    /** Shows the settings' values again, for when they changed while the screen was open; the page and scroll stay. */
+    public void refresh() {
+        popup.close();
+        rebuildList();
+    }
+
+    public Screen parent() {
+        return parent;
+    }
+
     @Override
     public void onClose() {
         minecraft.gui.setScreen(parent);

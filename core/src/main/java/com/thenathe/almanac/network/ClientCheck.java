@@ -35,9 +35,10 @@ public final class ClientCheck {
      * two send each other changes in a way the other side can't read: 2 from 0.2.0 (0.1.x had no check), 3 from 0.3.0
      * (the season sync carries the snow's layers, the far state lost its last field, the full settings update went),
      * 4 from 0.4.0 (regional weather: the client works the rain out from the weather record, which an older client
-     * doesn't take, so it would see no rain at all).
+     * doesn't take, so it would see no rain at all), 5 from 1.1.0 (version 2 of the storm maths, which an older
+     * client doesn't have, and each era of the weather record carries its share of time under rain).
      */
-    public static final int PROTOCOL = 4;
+    public static final int PROTOCOL = 5;
 
     private static final Logger LOGGER = LoggerFactory.getLogger(Almanac.MOD_ID);
     private static final ConfigurationTask.Type TASK = new ConfigurationTask.Type(Almanac.MOD_ID + ":client_check");

@@ -39,6 +39,10 @@ Each addition is marked with the version it came in:
   `weatherAt` already had them (in 0.4.0 both waited for the weather to move again).
 - **1.0.0** added nothing. It is 0.4.1 under the number of the public release: the same calls with the same answers,
   the same protocol and the same saved data.
+- **far-snow-111** (unreleased) adds nothing. `snowLayersAt` keeps its meaning; when more places are asked about than a
+  client works out, the nodes nearest the camera are worked out. Under regional weather the far snow lines count a
+  climate's snow as begun wherever it may lie, not only where loaded land has some (`docs/FAR-SNOW.md`, "Snow by
+  place").
 
 ### Removed
 
@@ -312,7 +316,7 @@ New calls (all on `AlmanacApi`; on a client every one is safe from any thread):
 | `stormsNear(Level, x, z, radius)` | `List<Storm>`, nearest first: every storm whose cloud comes within `radius` blocks now. Empty without regional weather. |
 | `weatherTick(Level, partialTick)` | `OptionalDouble`: the weather tick now, the game time less any time the weather stood still (`advance_weather` off). Storms live in weather ticks. |
 | `prevailingWind(Level, weatherTick)` | `Optional<Wind>`: the wind storms are carried by, `direction` (radians from east towards south) and `speed` (blocks a tick), with `velocityX`/`Z`. A smooth function of the weather tick. |
-| `snowLayersAt(Level, x, z, Climate)` | `Optional<SnowLayers>`: the snow at a place, which differs from place to place since it builds only where storms went. On a client, for any place, loaded or not, worked out from the weather the server sent: the first ask about a place starts the work and answers empty, and it answers a tick or so later. On the server, for loaded land. Without regional weather it is `snowLayers`. |
+| `snowLayersAt(Level, x, z, Climate)` | `Optional<SnowLayers>`: the snow at a place, which differs from place to place since it builds only where storms went. On a client, for any place, loaded or not, worked out from the weather the server sent: the first ask about a place starts the work and answers empty, and it answers a tick or so later. A client works out at most 2,048 snow nodes (four round each place asked), the nearest the camera first. On the server, for loaded land. Without regional weather it is `snowLayers`. |
 
 **`Storm`** (a record; fixed for its whole life, so it is placed at any moment from these numbers alone):
 

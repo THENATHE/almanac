@@ -172,7 +172,7 @@ class ServerConfigTest {
     }
 
     /**
-     * A file saved by this version with 0.3.0's and 0.4.0's settings checked at their defaults and taken out, and its
+     * A file saved by this version with 0.3.0's, 0.4.0's and 1.1.0's settings checked at their defaults and taken out, and its
      * credits note checked to be this version's (the note is rewritten on every save, so it follows the credits).
      */
     private static JsonObject withoutNewSettings(JsonObject saved) {
@@ -180,6 +180,7 @@ class ServerConfigTest {
         assertEquals(ServerConfig.CREDITS, older.remove("_credits").getAsString());
         assertTrue(older.remove("regionalWeather").getAsBoolean());
         assertFalse(older.remove("weatherCommandEverywhere").getAsBoolean());
+        assertEquals(25, older.remove("timeUnderRain").getAsInt());
         assertEquals(12_000, older.remove("snowfallTicks").getAsInt());
         assertEquals(18_000, older.remove("thawTicks").getAsInt());
         assertEquals(0, older.remove("iceTicks").getAsInt());
@@ -213,10 +214,10 @@ class ServerConfigTest {
         assertFalse(ServerSetting.byName("temperateShare.mid_summer").isPresent());
         assertThrows(IllegalArgumentException.class, () -> ServerSetting.byName("daysPerSeason").orElseThrow().set(config, "many"));
         assertThrows(IllegalArgumentException.class, () -> ServerSetting.byName("paused").orElseThrow().set(config, "maybe"));
-        // Four season settings, two weather settings (from 0.4.0), the 26 shares (11 temperate, 3 hot, 12 cold), three
+        // Four season settings, three weather settings (two from 0.4.0, the time under rain from 1.1.0), the 26 shares (11 temperate, 3 hot, 12 cold), three
         // climate settings, eight snow settings (the three clocks and the most layers from 0.3.0) and four far terrain
         // settings. The two colour settings for players without Almanac went in 0.2.0.
-        assertEquals(4 + 2 + 26 + 3 + 8 + 4, ServerSetting.all().size());
+        assertEquals(4 + 3 + 26 + 3 + 8 + 4, ServerSetting.all().size());
     }
 
     @Test

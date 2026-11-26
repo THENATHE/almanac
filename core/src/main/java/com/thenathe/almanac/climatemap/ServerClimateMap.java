@@ -216,10 +216,14 @@ public final class ServerClimateMap {
             return;
         }
         SnowNow snow = Services.snow().now();
-        SubSeason shown = Services.snow().farRule().shownSubSeason(seasons.subSeason(), snow.layers());
+        Map<Climate, Integer> begun = Services.snow().farLayers();
+        if (snow == null || begun == null) {
+            return;
+        }
+        SubSeason shown = Services.snow().farRule().shownSubSeason(seasons.subSeason(), begun);
         int[] layers = new int[Climate.values().length];
         for (Climate climate : Climate.values()) {
-            layers[climate.ordinal()] = snow.layers(climate);
+            layers[climate.ordinal()] = begun.getOrDefault(climate, 0);
         }
         FarClimatePayloads.State state = new FarClimatePayloads.State(config.farClimateMap, shown, layers,
                 snow.nativeSnowMelts(), snow.naturalHeight());

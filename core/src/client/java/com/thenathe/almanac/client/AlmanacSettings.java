@@ -25,17 +25,27 @@ import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
+import org.jspecify.annotations.Nullable;
 
 /**
  * The one settings screen: the server's settings, which operators and the singleplayer host can change, and this
  * client's own choices. It opens from Mod Menu or a key binding.
+ *
+ * <p>Connected to a server with Almanac, the server's pages show the settings the server last sent
+ * ({@link ClientState}), never this computer's own {@code config/almanac-server.json}; an operator's changes go to
+ * the server, which checks the permission itself, applies and saves them in its own file and sends them to everyone.
+ * Settings the server sends while the screen is open show at once, beside whatever the player has changed and not
+ * yet saved. With no world open the server's pages are the local file, the one the next singleplayer world uses.
  */
 public final class AlmanacSettings {
+    /** The screen open now, if any, with the server settings it shows; touched on the client thread only. */
+    private static @Nullable OpenScreen open;
+
     private AlmanacSettings() {
     }
 
     /** Where the server settings shown on the screen come from, and where they go when it closes. */
-    private enum ServerSource {
+    enum ServerSource {
         /** Connected to a server with Almanac (singleplayer included) and allowed to change its settings. */
         CONNECTED_EDITABLE,
         /** Connected, but only operators may change the settings. */
@@ -46,6 +56,13 @@ public final class AlmanacSettings {
         LOCAL_FILE
     }
 
+    /**
+     * The server settings an open screen shows: {@code original} as they were when they were last read or sent,
+     * {@code shown} with the player's changes, which the rows read and write.
+     */
+    private record OpenScreen(KitSettingsScreen screen, ServerSource source, ServerConfig original, ServerConfig shown) {
+    }
+
     public static Screen create(Screen parent) {
         ClientConfig client = ClientConfig.get();
         ServerSource source = serverSource();
@@ -53,28 +70,59 @@ public final class AlmanacSettings {
             // Show the file as it is now, hand edits included.
             ServerConfig.reload();
         }
-        ServerConfig original = switch (source) {
+        ServerConfig sent = switch (source) {
             case CONNECTED_EDITABLE, CONNECTED_READ_ONLY -> ClientState.serverSettings();
             case LOCAL_FILE -> ServerConfig.get();
             case CONNECTED_WITHOUT_MOD -> null;
         };
+        ServerConfig original = sent == null ? null : sent.copy();
         ServerConfig shown = original == null ? null : original.copy();
-        boolean editable = source == ServerSource.CONNECTED_EDITABLE || source == ServerSource.LOCAL_FILE;
 
+        OpenScreen[] made = new OpenScreen[1];
         Runnable save = () -> {
             ClientConfig.save();
-            if (editable && shown != null) {
-                saveServerSettings(source, ServerConfig.changes(original, shown));
+            OpenScreen view = made[0];
+            if (open == view) {
+                open = null;
+            }
+            if (view != null && view.shown() != null) {
+                saveServerSettings(view.source(), ServerConfig.changes(view.original(), view.shown()));
             }
         };
-        return new KitSettingsScreen(Component.translatable("almanac.title"), parent,
-                pages(source, shown, client), new ConfigLook(client), save);
+        KitSettingsScreen screen = new KitSettingsScreen(Component.translatable("almanac.title"), parent,
+                pages(source, Minecraft.getInstance().isLocalServer(), shown, client), new ConfigLook(client), save);
+        made[0] = new OpenScreen(screen, source, original, shown);
+        open = made[0];
+        return screen;
+    }
+
+    /**
+     * The server sent its settings (on joining, after any change by anyone, and when this player's right to change
+     * them changed). An open screen showing them takes the new values for every setting the player hasn't changed;
+     * one whose right changed is opened again, so its pages lock or unlock.
+     */
+    static void serverSettingsArrived() {
+        // A screen is open from when it is made until it goes away, which saves it and clears this.
+        OpenScreen view = open;
+        if (view == null || view.source() == ServerSource.LOCAL_FILE) {
+            return;
+        }
+        Minecraft minecraft = Minecraft.getInstance();
+        ServerConfig sent = ClientState.serverSettings();
+        if (serverSource() != view.source() || sent == null) {
+            minecraft.gui.setScreen(create(view.screen().parent()));
+            return;
+        }
+        ServerConfig merged = ServerConfig.withChanges(sent, ServerConfig.changes(view.original(), view.shown()).toString());
+        view.original().copyFrom(sent);
+        view.shown().copyFrom(merged == null ? sent : merged);
+        view.screen().refresh();
     }
 
     /**
      * Sends only what the player changed, so a save never undoes what someone else changed while the screen was
-     * open. Servers with Almanac 0.1.3 or later apply the changes on top of their own latest settings; older ones
-     * take a whole set, so they get the server's latest as this client last heard it, with the changes on top.
+     * open; the server applies the changes on top of its own latest settings. Connected, nothing is written to this
+     * computer's own files.
      */
     private static void saveServerSettings(ServerSource source, JsonObject changes) {
         if (changes.isEmpty()) {
@@ -86,7 +134,8 @@ public final class AlmanacSettings {
             if (updated != null) {
                 ServerConfig.replace(updated);
             }
-        } else if (ClientPlayNetworking.canSend(SettingsPayloads.Change.TYPE)) {
+        } else if (source == ServerSource.CONNECTED_EDITABLE && ClientState.mayEditServerSettings()
+                && ClientPlayNetworking.canSend(SettingsPayloads.Change.TYPE)) {
             ClientPlayNetworking.send(new SettingsPayloads.Change(changes.toString()));
         }
     }
@@ -102,45 +151,60 @@ public final class AlmanacSettings {
         return ClientState.mayEditServerSettings() ? ServerSource.CONNECTED_EDITABLE : ServerSource.CONNECTED_READ_ONLY;
     }
 
-    private static List<SettingsPage> pages(ServerSource source, ServerConfig server, ClientConfig client) {
+    /**
+     * The pages, server settings first. Each server page opens by saying whose settings they are and who may change
+     * them; the page of this computer's own choices says the same of it.
+     */
+    static List<SettingsPage> pages(ServerSource source, boolean singleplayer, @Nullable ServerConfig server,
+                                    ClientConfig client) {
         ServerConfig defaults = new ServerConfig();
         SettingsPage seasons = new SettingsPage(Component.translatable("almanac.page.seasons"));
-        SettingsPage weather = new SettingsPage(Component.translatable("almanac.page.weather"));
+        SettingsPage climate = new SettingsPage(Component.translatable("almanac.page.climate"));
         SettingsPage snow = new SettingsPage(Component.translatable("almanac.page.snow"));
-        SettingsPage colours = new SettingsPage(Component.translatable("almanac.page.colours"));
+        SettingsPage weather = new SettingsPage(Component.translatable("almanac.page.weather"));
 
-        List<SettingsPage> serverPages = List.of(seasons, weather, snow, colours);
-        if (server == null) {
-            for (SettingsPage page : serverPages) {
-                page.caption("server").note("server_without_mod");
-            }
-        } else {
+        List<SettingsPage> serverPages = List.of(seasons, climate, snow, weather);
+        String whose = switch (source) {
+            case CONNECTED_EDITABLE -> singleplayer ? "server_singleplayer" : "server_editable";
+            case CONNECTED_READ_ONLY -> "server_read_only";
+            case CONNECTED_WITHOUT_MOD -> "server_without_mod";
+            case LOCAL_FILE -> "server_local_file";
+        };
+        for (SettingsPage page : serverPages) {
             if (source == ServerSource.CONNECTED_READ_ONLY) {
-                for (SettingsPage page : serverPages) {
-                    page.readOnly().caption("server").note("server_read_only");
-                }
+                page.readOnly();
             }
+            page.caption("server").note(whose);
+        }
+        if (server != null) {
             seasonRows(seasons, server, defaults);
-            weatherRows(weather, server, defaults);
+            climateRows(climate, server, defaults);
             snowRows(snow, server, defaults);
-            colourRows(colours, server, defaults);
+            weatherRows(weather, server, defaults);
         }
 
         ClientConfig clientDefaults = new ClientConfig();
         SettingsPage thisClient = new SettingsPage(Component.translatable("almanac.page.client"))
+                .caption("this_computer")
+                .note("this_computer")
                 .caption("colours_here")
                 .add(toggle("colour_blending", clientDefaults.colourBlending, () -> client.colourBlending,
                         value -> client.colourBlending = value))
                 .add(Setting.slider("redraw_sections_per_tick", clientDefaults.redrawSectionsPerTick,
                         ClientConfig.MIN_REDRAW_SECTIONS, ClientConfig.MAX_REDRAW_SECTIONS, 1,
                         value -> Component.translatable("almanac.sections", value),
-                        () -> client.redrawSectionsPerTick, value -> client.redrawSectionsPerTick = value));
+                        () -> client.redrawSectionsPerTick, value -> client.redrawSectionsPerTick = value))
+                .note("palette")
+                .caption("look")
+                .note("look");
 
         SettingsPage help = new SettingsPage(Component.translatable("almanac.page.help"))
                 .caption("who_can_change")
                 .note("permissions")
                 .caption("when_changes_apply")
                 .note("live_changes")
+                .caption("commands")
+                .note("commands")
                 .caption("keys")
                 .note("keys")
                 .caption("players_need_almanac")
@@ -148,7 +212,7 @@ public final class AlmanacSettings {
                 .caption("credits")
                 .note("credits");
 
-        return List.of(seasons, weather, snow, colours, thisClient, help);
+        return List.of(seasons, climate, snow, weather, thisClient, help);
     }
 
     private static void seasonRows(SettingsPage page, ServerConfig server, ServerConfig defaults) {
@@ -166,14 +230,22 @@ public final class AlmanacSettings {
                         value -> server.announceSubSeasons = value));
     }
 
-    private static void weatherRows(SettingsPage page, ServerConfig server, ServerConfig defaults) {
-        page.caption("regional_weather")
-                .add(toggle("regional_weather", defaults.regionalWeather, () -> server.regionalWeather,
-                        value -> server.regionalWeather = value))
-                .add(toggle("weather_command_everywhere", defaults.weatherCommandEverywhere,
-                        () -> server.weatherCommandEverywhere, value -> server.weatherCommandEverywhere = value));
+    private static void climateRows(SettingsPage page, ServerConfig server, ServerConfig defaults) {
+        page.caption("climates")
+                .note("climates")
+                .caption("temperatures")
+                .add(Setting.slider("snow_line_above_sea", defaults.snowLineAboveSea, ServerConfig.MIN_SNOW_LINE,
+                        ServerConfig.MAX_SNOW_LINE, 1, value -> Component.translatable("almanac.blocks", value),
+                        () -> server.snowLineAboveSea, value -> server.snowLineAboveSea = value))
+                .add(decimal("winter_temperature", defaults.winterTemperature, ServerConfig.MIN_WINTER_TEMPERATURE,
+                        ServerConfig.MAX_WINTER_TEMPERATURE, 0.05, () -> server.winterTemperature,
+                        value -> server.winterTemperature = value))
+                .add(decimal("summer_temperature", defaults.summerTemperature, ServerConfig.MIN_SUMMER_TEMPERATURE,
+                        ServerConfig.MAX_SUMMER_TEMPERATURE, 0.05, () -> server.summerTemperature,
+                        value -> server.summerTemperature = value));
+        page.caption("shares").note("shares");
         for (Climate climate : List.of(Climate.TEMPERATE, Climate.COLD, Climate.HOT)) {
-            page.caption("share." + climate.id());
+            page.foldedCaption("share." + climate.id());
             for (SubSeason subSeason : SubSeason.values()) {
                 if (RainShares.hasShare(climate, subSeason)) {
                     page.add(Setting.slider("share." + climate.id() + "." + subSeason.id(),
@@ -184,16 +256,19 @@ public final class AlmanacSettings {
                 }
             }
         }
-        page.foldedCaption("temperatures")
-                .add(Setting.slider("snow_line_above_sea", defaults.snowLineAboveSea, ServerConfig.MIN_SNOW_LINE,
-                        ServerConfig.MAX_SNOW_LINE, 1, value -> Component.translatable("almanac.blocks", value),
-                        () -> server.snowLineAboveSea, value -> server.snowLineAboveSea = value))
-                .add(decimal("winter_temperature", defaults.winterTemperature, ServerConfig.MIN_WINTER_TEMPERATURE,
-                        ServerConfig.MAX_WINTER_TEMPERATURE, 0.05, () -> server.winterTemperature,
-                        value -> server.winterTemperature = value))
-                .add(decimal("summer_temperature", defaults.summerTemperature, ServerConfig.MIN_SUMMER_TEMPERATURE,
-                        ServerConfig.MAX_SUMMER_TEMPERATURE, 0.05, () -> server.summerTemperature,
-                        value -> server.summerTemperature = value));
+    }
+
+    private static void weatherRows(SettingsPage page, ServerConfig server, ServerConfig defaults) {
+        page.caption("regional_weather")
+                .add(toggle("regional_weather", defaults.regionalWeather, () -> server.regionalWeather,
+                        value -> server.regionalWeather = value))
+                .add(Setting.slider("time_under_rain", defaults.timeUnderRain, ServerConfig.MIN_TIME_UNDER_RAIN,
+                        ServerConfig.MAX_TIME_UNDER_RAIN, 1, value -> Component.translatable("almanac.percent", value),
+                        () -> server.timeUnderRain, value -> server.timeUnderRain = value))
+                .caption("weather_command")
+                .add(toggle("weather_command_everywhere", defaults.weatherCommandEverywhere,
+                        () -> server.weatherCommandEverywhere, value -> server.weatherCommandEverywhere = value))
+                .note("weather_command");
     }
 
     private static void snowRows(SettingsPage page, ServerConfig server, ServerConfig defaults) {
@@ -238,10 +313,6 @@ public final class AlmanacSettings {
                         ServerConfig.MIN_FAR_BYTES, ServerConfig.MAX_FAR_BYTES, 512,
                         value -> Component.translatable("almanac.bytes", value),
                         () -> server.farClimateBytesPerTick, value -> server.farClimateBytesPerTick = value));
-    }
-
-    private static void colourRows(SettingsPage page, ServerConfig server, ServerConfig defaults) {
-        page.note("palette");
     }
 
     private interface BooleanGetter {

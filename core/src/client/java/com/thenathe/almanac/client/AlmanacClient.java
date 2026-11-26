@@ -50,8 +50,10 @@ public final class AlmanacClient implements ClientModInitializer {
                 Services.weather().clientReceived(payload.record()));
         ClientPlayNetworking.registerGlobalReceiver(SnowLogPayload.TYPE, (payload, context) ->
                 Services.snow().clientReceivedLog(payload.log()));
-        ClientPlayNetworking.registerGlobalReceiver(SettingsPayloads.Snapshot.TYPE, (payload, context) ->
-                ClientState.settings(payload.canEdit(), ServerConfig.fromJson(payload.json())));
+        ClientPlayNetworking.registerGlobalReceiver(SettingsPayloads.Snapshot.TYPE, (payload, context) -> {
+            ClientState.settings(payload.canEdit(), ServerConfig.fromJson(payload.json()));
+            AlmanacSettings.serverSettingsArrived();
+        });
         // Registering these is what tells the server this client takes the climate map. Beside a LiteLights too old
         // for this Almanac it doesn't, so far terrain keeps its captured snow.
         if (LiteLightsCheck.farTerrainShared()) {
@@ -88,7 +90,8 @@ public final class AlmanacClient implements ClientModInitializer {
             if (client.level != null && client.getCameraEntity() != null) {
                 Services.weather().clientTicked(client.level, client.getCameraEntity().getX(),
                         client.getCameraEntity().getZ());
-                Services.snow().clientTicked(client.level);
+                Services.snow().clientTicked(client.level, client.getCameraEntity().getX(),
+                        client.getCameraEntity().getZ());
             }
             ClientRain.tick(client);
         });

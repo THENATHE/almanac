@@ -9,6 +9,8 @@ import com.google.gson.JsonParser;
 import com.thenathe.almanac.api.Climate;
 import com.thenathe.almanac.api.SubSeason;
 import com.thenathe.almanac.climate.RainShares;
+import java.lang.reflect.Field;
+import java.lang.reflect.Modifier;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -65,6 +67,8 @@ public final class ServerConfig {
     public static final int MAX_CLOCK_TICKS = 480_000;
     public static final int MIN_SNOW_LAYERS = 1;
     public static final int MAX_SNOW_LAYERS = 8;
+    public static final int MIN_TIME_UNDER_RAIN = 5;
+    public static final int MAX_TIME_UNDER_RAIN = 50;
     public static final int MIN_FAR_RADIUS = 512;
     public static final int MAX_FAR_RADIUS = 16384;
     /** Climate map cells, in blocks; each divides a tile evenly. */
@@ -96,6 +100,12 @@ public final class ServerConfig {
      * them, or a clear sky for some way around).
      */
     public boolean weatherCommandEverywhere = false;
+    /**
+     * With regional weather, the share of the time every place is under rain or snow, in percent (from 1.1.0; 1.0.0
+     * had vanilla's 15.8 % built in). A change counts for the storms born from the next weather day on; the storms
+     * already about, and the weather before, stay as they were.
+     */
+    public int timeUnderRain = 25;
     // The share of rain events (with regional weather, of storms), in percent, that reach each climate, by sub-season.
     // Dry cells aren't listed.
     public Map<String, Integer> temperateShare = RainShares.defaultRow(Climate.TEMPERATE);
@@ -218,6 +228,23 @@ public final class ServerConfig {
     }
 
     /**
+     * Takes every setting of {@code other} into this object, so whatever holds on to it sees them: the settings
+     * screen's rows, when the server's settings change while the screen is open.
+     */
+    public void copyFrom(ServerConfig other) {
+        ServerConfig copy = other.copy();
+        try {
+            for (Field field : ServerConfig.class.getFields()) {
+                if (!Modifier.isStatic(field.getModifiers())) {
+                    field.set(this, field.get(copy));
+                }
+            }
+        } catch (IllegalAccessException unreachable) {
+            throw new IllegalStateException(unreachable);
+        }
+    }
+
+    /**
      * The settings that differ between {@code before} and {@code after}, as a JSON object of just those fields; a rain
      * share row holds just the sub-seasons that differ. What the settings screen sends, so a save only touches what
      * the player changed.
@@ -329,6 +356,7 @@ public final class ServerConfig {
         temperateShare = validShares(Climate.TEMPERATE, temperateShare);
         hotShare = validShares(Climate.HOT, hotShare);
         coldShare = validShares(Climate.COLD, coldShare);
+        timeUnderRain = Math.clamp(timeUnderRain, MIN_TIME_UNDER_RAIN, MAX_TIME_UNDER_RAIN);
         snowLineAboveSea = Math.clamp(snowLineAboveSea, MIN_SNOW_LINE, MAX_SNOW_LINE);
         winterTemperature = clamp(winterTemperature, MIN_WINTER_TEMPERATURE, MAX_WINTER_TEMPERATURE, defaults.winterTemperature);
         summerTemperature = clamp(summerTemperature, MIN_SUMMER_TEMPERATURE, MAX_SUMMER_TEMPERATURE, defaults.summerTemperature);

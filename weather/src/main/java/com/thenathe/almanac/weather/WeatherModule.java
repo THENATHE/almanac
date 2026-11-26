@@ -60,7 +60,7 @@ public final class WeatherModule implements AlmanacModule, Weather {
 
     @Override
     public int mathsVersion() {
-        return StormMathsV1.VERSION;
+        return StormMathsV2.VERSION;
     }
 
     @Override

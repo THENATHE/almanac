@@ -292,6 +292,35 @@ public final class SnowLog {
         return trend(area, now, rain).now();
     }
 
+    /**
+     * Whether a climate's snow may lie anywhere at {@code now}: since the last time it was surely gone (or since the
+     * checkpoint, if it held any), the climate was cold while storms could reach it, or while vanilla's rain reached
+     * it. Under regional weather the snow lies only where storms went, so loaded land can be bare while snow lies on
+     * land nobody has loaded; far terrain counts the climate's snow as begun while this holds.
+     */
+    boolean snowMayLie(Climate climate, long now) {
+        long melted = meltedBy(climate, now);
+        if (melted == Long.MIN_VALUE && checkpoint.get(climate).depth() > 0.0) {
+            return true;
+        }
+        List<Segment> list = new ArrayList<>(segments);
+        for (int index = 0; index < list.size(); index++) {
+            Segment segment = list.get(index);
+            if (segment.start() > now) {
+                break;
+            }
+            long end = index + 1 < list.size() ? list.get(index + 1).start() : now;
+            if (end <= melted || end <= checkpointTick) {
+                continue;
+            }
+            boolean wet = segment.weatherVersion() > 0 || segment.raining();
+            if (wet && segment.reached().contains(climate) && holdsSnow(climate, segment.subSeason())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /** A climate's snow depth at {@code now}, under vanilla's one rain. */
     double depth(Climate climate, long now) {
         return amount(SnowArea.of(climate), now, RainSource.GLOBAL).depth();

@@ -18,7 +18,8 @@ import net.minecraft.resources.Identifier;
  * each tick. A few hundred bytes for a world a few years old.
  */
 public record WeatherSyncPayload(WeatherRecord record) implements CustomPacketPayload {
-    private static final int FORMAT = 1;
+    /** 2 from 1.1.0 (protocol 5): each era carries its share of time under rain. */
+    private static final int FORMAT = 2;
     /** More than any record holds; a broken or hostile server can't make the client allocate without end. */
     private static final int MOST_ENTRIES = 65_536;
 
@@ -36,6 +37,7 @@ public record WeatherSyncPayload(WeatherRecord record) implements CustomPacketPa
                     buffer.writeVarInt(era.hotShare());
                     buffer.writeVarInt(era.temperateShare());
                     buffer.writeVarInt(era.coldShare());
+                    buffer.writeVarInt(era.rainShare());
                 }
                 buffer.writeVarInt(record.events().size());
                 for (WeatherRecord.Event event : record.events()) {
@@ -59,7 +61,8 @@ public record WeatherSyncPayload(WeatherRecord record) implements CustomPacketPa
                 int eraCount = count(buffer);
                 for (int index = 0; index < eraCount; index++) {
                     eras.add(new WeatherRecord.Era(buffer.readLong(), SubSeason.byIndex(buffer.readVarInt()),
-                            buffer.readVarInt(), buffer.readVarInt(), buffer.readVarInt(), buffer.readVarInt()));
+                            buffer.readVarInt(), buffer.readVarInt(), buffer.readVarInt(), buffer.readVarInt(),
+                            buffer.readVarInt()));
                 }
                 List<WeatherRecord.Event> events = new ArrayList<>();
                 int eventCount = count(buffer);

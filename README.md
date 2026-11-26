@@ -13,7 +13,7 @@ player's game:** a server running Almanac refuses players who don't have it.
 - **Seasons:** early, mid and late spring, summer, fall and winter. Each season lasts 24 in-game days by default, and you can change that.
 - **Regional weather:** storms are born, grow, drift with the wind and die away, so it rains or snows in one valley and not the next.
   - A storm lasts from a few hours to two days of game time. Summer brings small, quick storms that often thunder; winter brings large, slow snowstorms.
-  - Each place is under rain about as often as in plain Minecraft, and thunder and lightning only come under a thunderstorm.
+  - Each place is under rain or snow a quarter of the time (plain Minecraft rains about a sixth of the time; a server setting changes it), and thunder and lightning only come under a thunderstorm.
   - Everything the weather touches goes by the storm where it is: farmland, fire, fishing, cauldrons, lightning, mobs, bees and sleeping through a thunderstorm.
   - You can turn it off for one weather everywhere, as in plain Minecraft.
 - **Weather by climate:** every biome is HOT (deserts, badlands), COLD (the snowy biomes) or TEMPERATE (everything else). Winter moves each one a step colder and summer a step warmer.
@@ -53,7 +53,7 @@ An existing world keeps its season and day, its snow, its frozen ponds and its s
 - `/weather rain` and `/weather thunder` put a storm over you, and `/weather clear` clears the sky for 2,500 blocks around you. A setting (or `/almanac weather everywhere`) makes them act on the whole world, as in plain Minecraft. Turning off the `advance_weather` game rule stands every storm still.
 - `/almanac weather` shows the weather where you stand; `/almanac weather storms` the storms near you, how big they are and which way they're heading; `/almanac weather forecast` when it next rains or snows where you stand.
 - `/almanac config` lists and changes every server setting, and `/almanac config reload` reads the settings file again after you've edited it by hand. `/almanac snow` shows the snow in each climate.
-- Everything is on one settings screen too (through Mod Menu, or the keybind). Operators and the singleplayer host can change the server's settings there; everyone else can see them but not change them.
+- Everything is on one settings screen too (through Mod Menu, or the keybind), in pages for the seasons, the climate, snow and ice, the weather and your own game. On a server the pages show the server's settings; operators can change them there, and the server saves them and sends them to everyone. Everyone else can see them but not change them. In singleplayer they are your own.
 
 Server settings are saved in `config/almanac-server.json`. If you edit it by hand and make a mistake, Almanac moves it aside as `almanac-server.json.broken` instead of overwriting it, and says so in the log.
 

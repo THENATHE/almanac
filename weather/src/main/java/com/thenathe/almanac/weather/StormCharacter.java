@@ -6,7 +6,9 @@ import com.thenathe.almanac.api.Storm;
  * What a season's storms are like: how big, how stretched, how long they live, how fast they move and how often they
  * thunder. The amount of rain doesn't change with the season (user, 2026-11-22: area rain "roughly keeps the amount
  * of rain an area would get in vanilla"), so each character's storm count is solved from its shapes to give every
- * place vanilla's share of rain ({@link #density}), and its share of thunderstorms likewise ({@link #thunderChance}).
+ * place one share of time under rain ({@link #density}), and its share of thunderstorms likewise
+ * ({@link #thunderChance}). Version 1 of the storm maths solves for vanilla's share; from version 2 the share is the
+ * server's setting, 25 % by default (user, 2026-11-25: "lets up the minecraft rain % to 25%").
  *
  * <p>Radii are spread evenly on a log scale, so small and large storms are both common. A storm's area is that of a
  * circle of its radius whatever its stretch.
@@ -33,6 +35,16 @@ record StormCharacter(String name, double minRadius, double maxRadius, double ma
      */
     static final double VANILLA_THUNDER_SHARE_OF_RAIN = 0.09;
 
+    /**
+     * The furthest a storm of this character born at most {@code age} ticks ago can reach from where it was born: the
+     * fastest drift in the strongest wind ({@code gust} the wind's most above its usual strength, as a part of it)
+     * for that long or its longest life, whichever is less, and its longest semi-axis, with a few blocks to spare.
+     */
+    double reach(double gust, double age) {
+        double travel = maxSpeed * (1.0 + gust) * Math.clamp(age, 0.0, maxLife);
+        return travel + maxRadius * Math.sqrt(maxStretch) + 16.0;
+    }
+
     /** The mean of the radius squared, for a radius spread evenly on a log scale. */
     double meanSquaredRadius() {
         if (maxRadius <= minRadius) {
@@ -55,14 +67,19 @@ record StormCharacter(String name, double minRadius, double maxRadius, double ma
 
     /**
      * How many storms are born in one lattice cell (a square of {@code cellSize} blocks over {@code dayTicks} ticks),
-     * on average, for every place to be under a rain core {@link #VANILLA_RAIN_SHARE} of the time.
+     * on average, for every place to be under a rain core {@link #VANILLA_RAIN_SHARE} of the time (version 1).
      *
      * <p>Storms are spread evenly and independently over the world and the time, so how many rain cores cover a place
      * at a moment is a Poisson number with a mean of the cores' area-time per cell's area-time, and the share of time
      * under at least one is {@code 1 - exp(-mean)}. Solving that for the mean gives the count.
      */
     double density(int cellSize, int dayTicks) {
-        double cover = -StrictMath.log(1.0 - VANILLA_RAIN_SHARE);
+        return density(cellSize, dayTicks, VANILLA_RAIN_SHARE);
+    }
+
+    /** The same for every place to be under a rain core {@code rainShare} of the time (0 to 1). */
+    double density(int cellSize, int dayTicks, double rainShare) {
+        double cover = -StrictMath.log(1.0 - rainShare);
         double coreAreaTime = Math.PI * Storm.RAIN_CORE * Storm.RAIN_CORE * meanSquaredRadius() * lifeAreaFactor()
                 * meanLife();
         return cover * (double) cellSize * cellSize * dayTicks / coreAreaTime;
@@ -75,8 +92,13 @@ record StormCharacter(String name, double minRadius, double maxRadius, double ma
      * argument solves it.
      */
     double thunderChance() {
-        double rainCover = -StrictMath.log(1.0 - VANILLA_RAIN_SHARE);
-        double thunderCover = -StrictMath.log(1.0 - thunderShareOfRain * VANILLA_RAIN_SHARE);
+        return thunderChance(VANILLA_RAIN_SHARE);
+    }
+
+    /** The same where every place is under rain {@code rainShare} of the time. */
+    double thunderChance(double rainShare) {
+        double rainCover = -StrictMath.log(1.0 - rainShare);
+        double thunderCover = -StrictMath.log(1.0 - thunderShareOfRain * rainShare);
         double coreRatio = Storm.THUNDER_CORE / Storm.RAIN_CORE;
         double thunderPart = coreRatio * coreRatio * (1.0 - 2.0 * Storm.GROWTH) / lifeAreaFactor();
         return Math.min(1.0, thunderCover / (rainCover * thunderPart));

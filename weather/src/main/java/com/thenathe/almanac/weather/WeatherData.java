@@ -9,13 +9,15 @@ import com.thenathe.almanac.internal.WeatherRecord;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 import net.minecraft.resources.Identifier;
 import net.minecraft.world.level.saveddata.SavedData;
 import net.minecraft.world.level.saveddata.SavedDataType;
 
 /**
- * The overworld's weather record ({@code data/almanac/weather.dat}, from 0.4.0): the eras, the operators' weather and
- * the stretches the weather stood still ({@link WeatherRecord}). Storms aren't in it: they are worked out from the
+ * The overworld's weather record ({@code data/almanac/weather.dat}, from 0.4.0): the eras (with their share of time
+ * under rain, {@code rain_share}, from 1.1.0; an older era has none), the operators' weather and the stretches the
+ * weather stood still ({@link WeatherRecord}). Storms aren't in it: they are worked out from the
  * weather seed, which comes from the world seed, and the time. A world without the file (new, or from before 0.4.0)
  * starts an empty record the first time the season runs, and its regional weather starts then: that tick is the
  * switch-over, before which the world's weather was vanilla's one rain. Fields are read one by one
@@ -31,9 +33,12 @@ final class WeatherData extends SavedData {
             Codec.INT.fieldOf("version").forGetter(WeatherRecord.Era::version),
             Codec.INT.optionalFieldOf("hot_share", 0).forGetter(WeatherRecord.Era::hotShare),
             Codec.INT.optionalFieldOf("temperate_share", 100).forGetter(WeatherRecord.Era::temperateShare),
-            Codec.INT.optionalFieldOf("cold_share", 100).forGetter(WeatherRecord.Era::coldShare)
-    ).apply(instance, (start, subSeason, version, hot, temperate, cold) -> new WeatherRecord.Era(start,
-            SubSeason.byId(subSeason).orElse(SubSeason.EARLY_SPRING), version, hot, temperate, cold)));
+            Codec.INT.optionalFieldOf("cold_share", 100).forGetter(WeatherRecord.Era::coldShare),
+            // Written whenever there is one, never left to a default: a default could change, and the past with it.
+            Codec.INT.optionalFieldOf("rain_share").forGetter(era -> era.rainShare() > 0
+                    ? Optional.of(era.rainShare()) : Optional.empty())
+    ).apply(instance, (start, subSeason, version, hot, temperate, cold, rain) -> new WeatherRecord.Era(start,
+            SubSeason.byId(subSeason).orElse(SubSeason.EARLY_SPRING), version, hot, temperate, cold, rain.orElse(0))));
 
     private static final Codec<WeatherRecord.Event> EVENT_CODEC = RecordCodecBuilder.create(instance -> instance.group(
             Codec.STRING.fieldOf("kind").forGetter(event -> event.kind().name().toLowerCase(Locale.ROOT)),

@@ -196,11 +196,14 @@ public final class ServerSeasons {
         return new SeasonTick(climate, raining, weatherVersion, settings.fingerprint(), table.noSeasonalSnowFingerprint());
     }
 
-    /** What the weather module records this tick: the sub-season, its rain shares, and whether the weather moves. */
+    /**
+     * What the weather module records this tick: the sub-season, its rain shares, the share of time under rain, and
+     * whether the weather moves.
+     */
     private WeatherTick weatherTick(ServerConfig config, SubSeason subSeason) {
         boolean advancing = server.overworld().getGameRules().get(GameRules.ADVANCE_WEATHER);
         return new WeatherTick(subSeason, config.share(Climate.HOT, subSeason), config.share(Climate.TEMPERATE, subSeason),
-                config.share(Climate.COLD, subSeason), config.regionalWeather, advancing);
+                config.share(Climate.COLD, subSeason), config.timeUnderRain, config.regionalWeather, advancing);
     }
 
     /**

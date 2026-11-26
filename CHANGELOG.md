@@ -1,5 +1,54 @@
 # Changelog
 
+## 1.1.1+26.3 (2026-11-25, local)
+
+- **Far terrain shows the snow storms laid on land nobody is near.** LiteLights draws Almanac's snow on its far land;
+  beside 1.1.0 and 1.0.0 it often showed none there, or the snow where the player stood all over the far land:
+  - while no loaded land had snow, the far snow lines said the season's snow lay nowhere in a temperate climate, so
+    snow a storm had laid two kilometres away never showed. The lines now count a climate's snow as begun wherever it
+    may lie under regional weather (it has been cold there while storms could reach it since its snow was last surely
+    gone), and the snow at each place (`snowLayersAt`) says how much lies there;
+  - a client works out the snow of at most 2,048 snow nodes, and when far terrain asked about more (LiteLights asks
+    about 16,384) it took the first 2,048 in its map's order, scattered over 32 km, so most of the land round the
+    player stayed unknown (in game, the snow at a storm's place read empty even standing in it). It now takes the
+    nodes nearest the camera.
+- Nothing saved changes, and no call was added, removed or changed in meaning; LiteLights 1.1.0 to 1.1.4 show the
+  snow by place with this Almanac as they are.
+
+## 1.1.0+26.3 (2026-11-25, local)
+
+- **More rain, from larger and rarer storms.** Every place is now under rain or snow 25 % of the time, in every
+  season, where 1.0.0 kept vanilla's 15.8 %. The extra rain
+  comes from larger storms, not more of them: storms are 1.4 times as wide as 1.0.0's (twice the area), and 15 % fewer
+  are born, in every season. Each season keeps its character: summer's storms are still the smallest and quickest,
+  winter's the largest and slowest, and storms live and move as before. A given place sees a wet spell somewhat more
+  often than before, and each lasts longer. Thunder keeps its share of each season's rain, so it comes more often in
+  step with the rain: over a year about 2.2 % of the time, where it was about 1.4 %.
+- **New server setting `timeUnderRain`** (5 to 50 %, default 25), on the settings screen's Weather page and through
+  `/almanac config timeUnderRain`. A change counts for the storms that form from the next weather day on; the storms
+  already about, and the weather and snow before the change, stay as they were.
+- **Existing worlds keep everything.** A world from 1.0.0 keeps its season and day, its snow, its ice, its chunk
+  records, its weather record and its settings. The new storms take over from the moment the world first opens on
+  1.1.0, which the log notes; everything before that moment is worked out exactly as 1.0.0 had it, so the snow lying
+  in land nobody visited is what 1.0.0 would have left there. Storms already in the sky at that moment, and the rest
+  of that weather day's, live their lives out as they would have; the larger, rarer storms are born from the next
+  weather day on. The wind carries on unchanged. `/almanac weather status` now says which storms run and from when.
+- **Players need 1.1.0 too.** Server and players must work out the same storms, so a 1.0.0 player can't join a 1.1.0
+  server (or the reverse); they are refused with the usual message naming the Almanac to install.
+- **The settings screen, reworked.** Its pages are now Seasons, Climate, Snow and ice, Weather, On this computer and
+  Help. Climate has the snow line, the winter and summer temperatures and the share of storms that reach each climate
+  in each sub-season, with a note on how biomes are sorted into climates; Weather has regional weather, the time under
+  rain and the `/weather` command's setting; the old Colours page, which had no settings, is gone, and its note on the
+  seasonal palette is on this computer's page. Every server page says whose settings these are: connected to a server,
+  they are the server's own values, never your own file's; an operator's changes go to the server, which checks the
+  permission itself, saves them in its own file and sends them to every player; anyone else sees them locked. Settings
+  the server sends while the screen is open (someone else's change, or the console's) show at once, beside anything
+  you have changed but not yet saved. In singleplayer and on the title screen they are this computer's file, as
+  before. Descriptions now say what each setting does today: storms rather than rain events, and snow that follows the
+  storms.
+- **Upgrading.** Replace the jar on the server and on every player's game. The settings file keeps every value and
+  gains `timeUnderRain` at 25 the next time it is saved.
+
 ## 1.0.0+26.3 (2026-11-25)
 
 The first public release since 0.1.3.2. It is 0.4.1 under a new number: the code, the protocol, the saved data and the

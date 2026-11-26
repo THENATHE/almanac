@@ -90,6 +90,11 @@ final class StormMathsV1 implements StormMaths {
     }
 
     @Override
+    public double reach(SubSeason.Season season, double age) {
+        return Math.min(reach, characters.get(season).reach(WIND_GUST, age));
+    }
+
+    @Override
     public int longestLife() {
         return longestLife;
     }
@@ -108,7 +113,17 @@ final class StormMathsV1 implements StormMaths {
     }
 
     @Override
-    public Storm[] cell(long seed, int i, int j, long day, SubSeason.Season season) {
+    public boolean followsRainShare() {
+        return false;
+    }
+
+    @Override
+    public Storm[] cell(long seed, int i, int j, long day, SubSeason.Season season, int rainShare) {
+        return cell(seed, i, j, day, season);
+    }
+
+    /** The storms of a cell, at vanilla's share of rain: the only share version 1 knows. */
+    Storm[] cell(long seed, int i, int j, long day, SubSeason.Season season) {
         StormCharacter character = characters.get(season);
         Hashes.Draws cellDraws = new Hashes.Draws(Hashes.of(seed, VERSION, season.ordinal(), i, j, day));
         int count = poisson(cellDraws.next(), densities.get(season));

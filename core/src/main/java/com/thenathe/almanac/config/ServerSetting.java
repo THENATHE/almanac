@@ -54,6 +54,8 @@ public record ServerSetting(String name, String range, Function<ServerConfig, St
         settings.add(bool("regionalWeather", config -> config.regionalWeather, (config, value) -> config.regionalWeather = value));
         settings.add(bool("weatherCommandEverywhere", config -> config.weatherCommandEverywhere,
                 (config, value) -> config.weatherCommandEverywhere = value));
+        settings.add(integer("timeUnderRain", ServerConfig.MIN_TIME_UNDER_RAIN, ServerConfig.MAX_TIME_UNDER_RAIN,
+                config -> config.timeUnderRain, (config, value) -> config.timeUnderRain = value));
         for (Climate climate : Climate.values()) {
             for (SubSeason subSeason : SubSeason.values()) {
                 if (RainShares.hasShare(climate, subSeason)) {

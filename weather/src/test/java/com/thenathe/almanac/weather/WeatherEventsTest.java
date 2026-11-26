@@ -21,7 +21,8 @@ import org.junit.jupiter.api.Test;
  */
 class WeatherEventsTest {
     private static final long START = 30L * StormMathsV1.DAY;
-    private static final WeatherRecord.Era SPRING = new WeatherRecord.Era(0, SubSeason.MID_SPRING, 1, 100, 100, 100);
+    private static final WeatherRecord.Era SPRING = new WeatherRecord.Era(0, SubSeason.MID_SPRING, StormMathsV2.VERSION, 100, 100,
+            100, StormMathsV2.DEFAULT_RAIN_SHARE);
 
     private static WeatherField field(List<WeatherRecord.Event> events, List<WeatherRecord.Freeze> freezes) {
         return Worlds.field(new WeatherRecord(Worlds.SEED, List.of(SPRING), events, freezes));

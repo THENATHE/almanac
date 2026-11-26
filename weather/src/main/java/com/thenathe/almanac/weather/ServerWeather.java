@@ -98,7 +98,7 @@ final class ServerWeather {
     private boolean observeEra(long now, WeatherTick tick, int mathsVersion) {
         List<WeatherRecord.Era> eras = data.eras();
         WeatherRecord.Era era = new WeatherRecord.Era(now, tick.subSeason(), tick.regional() ? mathsVersion : 0,
-                tick.hotShare(), tick.temperateShare(), tick.coldShare());
+                tick.hotShare(), tick.temperateShare(), tick.coldShare(), tick.rainShare());
         WeatherRecord.Era last = eras.isEmpty() ? null : eras.getLast();
         if (last != null && last.sameWeather(era)) {
             return false;
@@ -107,11 +107,25 @@ final class ServerWeather {
             LOGGER.info("Almanac: regional weather runs in this world from game tick {}; before it the weather was "
                     + "vanilla's one rain", now);
         }
+        int lastVersion = lastRegionalVersion(eras);
+        if (era.regional() && lastVersion > 0 && lastVersion != era.version()) {
+            LOGGER.info("Almanac: new storms follow version {} of the storm maths from game tick {}; the weather before "
+                    + "it stays as version {} had it, and its storms live out their lives", era.version(), now, lastVersion);
+        }
         if (last != null && last.start() >= now) {
             eras.removeLast();
         }
         eras.add(era);
         return true;
+    }
+
+    private static int lastRegionalVersion(List<WeatherRecord.Era> eras) {
+        for (int index = eras.size() - 1; index >= 0; index--) {
+            if (eras.get(index).regional()) {
+                return eras.get(index).version();
+            }
+        }
+        return 0;
     }
 
     /** {@code advance_weather} off holds every storm where it is; on again, they move on from there. */
@@ -228,11 +242,22 @@ final class ServerWeather {
         WeatherRecord record = field.record();
         long switchOver = record.eras().stream().filter(WeatherRecord.Era::regional).mapToLong(WeatherRecord.Era::start)
                 .findFirst().orElse(-1);
+        WeatherRecord.Era latest = record.eras().stream().filter(WeatherRecord.Era::regional)
+                .reduce((first, second) -> second).orElse(null);
+        long mathsSince = latest == null ? -1 : record.eras().stream()
+                .filter(era -> era.regional() && era.version() == latest.version())
+                .mapToLong(WeatherRecord.Era::start).findFirst().orElse(-1);
+        String maths = latest == null ? "none yet" : String.format(Locale.ROOT, "version %d since game tick %d%s",
+                latest.version(), mathsSince, StormMaths.known(latest.version())
+                        && StormMaths.of(latest.version()).followsRainShare()
+                        ? String.format(Locale.ROOT, ", %d %% of the time under rain", latest.rainShare())
+                        : ", vanilla's share of rain");
         return String.format(Locale.ROOT, "record: %d eras, %d events, %d freezes; regional weather since game tick %s%n"
+                        + "storm maths: %s%n"
                         + "storm index: %s; built %d times, %.2f ms each on the background thread; answers %d from the "
                         + "index, %d worked out directly; %d lattice cells cached",
                 record.eras().size(), record.events().size(), record.freezes().size(),
-                switchOver < 0 ? "(never)" : String.valueOf(switchOver),
+                switchOver < 0 ? "(never)" : String.valueOf(switchOver), maths,
                 current == null ? "none yet" : current.squares() + " squares, " + current.storms() + " storms",
                 builds, builds == 0 ? 0.0 : buildNanos / 1e6 / builds, indexAnswers, directAnswers, cache.size());
     }

@@ -32,7 +32,7 @@ class SnowByAreaTest {
     /** A record with regional weather from the switch-over, in mid winter, every share at 100. */
     private static WeatherView winterWeather() {
         return WeatherModule.viewOf(new WeatherRecord(SEED,
-                List.of(new WeatherRecord.Era(SWITCH_OVER, SubSeason.MID_WINTER, 1, 100, 100, 100)), List.of(), List.of()));
+                List.of(new WeatherRecord.Era(SWITCH_OVER, SubSeason.MID_WINTER, 2, 100, 100, 100, 25)), List.of(), List.of()));
     }
 
     /**
@@ -43,7 +43,7 @@ class SnowByAreaTest {
         SnowLog log = new SnowLog(0);
         log.observe(SWITCH_OVER - 2 * DAY, SubSeason.MID_WINTER, true, Set.of(Climate.TEMPERATE, Climate.COLD), CLOCKS);
         log.observe(SWITCH_OVER - DAY / 2, SubSeason.MID_WINTER, false, Set.of(Climate.TEMPERATE, Climate.COLD), CLOCKS);
-        log.observe(SWITCH_OVER, SubSeason.MID_WINTER, false, Set.of(), CLOCKS, 1);
+        log.observe(SWITCH_OVER, SubSeason.MID_WINTER, false, Set.of(), CLOCKS, 2);
         return log;
     }
 
@@ -64,7 +64,7 @@ class SnowByAreaTest {
     @Test
     void aNodeBuildsByTheTimeAStormSnowedOnIt() {
         SnowLog log = new SnowLog(0);
-        log.observe(SWITCH_OVER, SubSeason.MID_WINTER, false, Set.of(), CLOCKS, 1);
+        log.observe(SWITCH_OVER, SubSeason.MID_WINTER, false, Set.of(), CLOCKS, 2);
         WeatherView weather = winterWeather();
         RainSource rain = RainSource.regional(weather);
         long end = SWITCH_OVER + 6 * DAY;
@@ -82,7 +82,7 @@ class SnowByAreaTest {
     @Test
     void nodesFarApartGetDifferentSnowAndOneNodeHasOneAnswer() {
         SnowLog log = new SnowLog(0);
-        log.observe(SWITCH_OVER, SubSeason.MID_WINTER, false, Set.of(), CLOCKS, 1);
+        log.observe(SWITCH_OVER, SubSeason.MID_WINTER, false, Set.of(), CLOCKS, 2);
         RainSource rain = RainSource.regional(winterWeather());
         long end = SWITCH_OVER + 3 * DAY;
         double lowest = Double.MAX_VALUE;
@@ -101,7 +101,7 @@ class SnowByAreaTest {
     @Test
     void followingANodeOnGivesWhatWorkingItOutAgainGives() {
         SnowLog log = new SnowLog(0);
-        log.observe(SWITCH_OVER, SubSeason.MID_WINTER, false, Set.of(), CLOCKS, 1);
+        log.observe(SWITCH_OVER, SubSeason.MID_WINTER, false, Set.of(), CLOCKS, 2);
         RainSource rain = RainSource.regional(winterWeather());
         SnowArea node = SnowArea.node(Climate.COLD, 4, -9);
         long tick = SWITCH_OVER;
@@ -119,7 +119,7 @@ class SnowByAreaTest {
         // The server thread follows each node forward from where it was worked out, at its pace, until its stable
         // tick; every tick until then it must give exactly what working the node out again would.
         SnowLog log = new SnowLog(0);
-        log.observe(SWITCH_OVER, SubSeason.MID_WINTER, false, Set.of(), CLOCKS, 1);
+        log.observe(SWITCH_OVER, SubSeason.MID_WINTER, false, Set.of(), CLOCKS, 2);
         RainSource rain = RainSource.regional(winterWeather());
         int checked = 0;
         for (int nodeX = 0; nodeX < 12; nodeX++) {
@@ -142,7 +142,7 @@ class SnowByAreaTest {
     @Test
     void aWarmSpellLongEnoughMeltsEverythingAndTheLogFoldsThroughIt() {
         SnowLog log = new SnowLog(0);
-        log.observe(SWITCH_OVER, SubSeason.MID_WINTER, false, Set.of(), CLOCKS, 1);
+        log.observe(SWITCH_OVER, SubSeason.MID_WINTER, false, Set.of(), CLOCKS, 2);
         log.observe(SWITCH_OVER + 8 * DAY, SubSeason.MID_SUMMER, false, Set.of(), CLOCKS, 1);
         log.observe(SWITCH_OVER + 16 * DAY, SubSeason.EARLY_WINTER, false, Set.of(), CLOCKS, 1);
         assertEquals(SWITCH_OVER + 16 * DAY, log.meltedBy(Climate.COLD, SWITCH_OVER + 20 * DAY));
@@ -195,7 +195,7 @@ class SnowByAreaTest {
         SnowLog read = SnowLog.CODEC.parse(net.minecraft.nbt.NbtOps.INSTANCE, saved).getOrThrow();
         assertEquals(log.segments(), read.segments());
         assertEquals(0, read.segments().getFirst().weatherVersion());
-        assertEquals(1, read.segments().getLast().weatherVersion());
+        assertEquals(2, read.segments().getLast().weatherVersion());
         // Segments of vanilla's weather save as they did in 0.3.0, without the new field.
         assertTrue(!saved.toString().contains("weather_version:0"));
     }

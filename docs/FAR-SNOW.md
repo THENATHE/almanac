@@ -75,13 +75,21 @@ lie in a column this sub-season, and the shares say how much of it does.
   area. The client works it out itself, from the weather log the server sends and the storms, on its background
   thread: the first ask about a place answers empty and starts the work, and the place answers from a tick or so later.
   So ask per far tile and fill again when the answers arrive. It keeps about 11 km square of nodes worked out and lets
-  go of places not asked about for 600 ticks.
+  go of places not asked about for 600 ticks. When more are asked about than it keeps (2,048 nodes), it keeps those
+  nearest the camera (from far-snow-111; up to 1.1.0 the first in its map's order, so beside LiteLights, which asks
+  about 16,384, most of the land round the player stayed unknown). Ask about the places you draw, nearest first in
+  importance: four nodes a place, or one each if your places are the nodes themselves (multiples of 256).
 - **`snowDepth` and `snowLayers` per climate** are, on a client, the snow where the player stands (each player's season
   sync carries their own). A far terrain renderer that reads only those (LiteLights 1.0.9 to 1.0.12) shows the player's
   own snow over all of the far land: right near the player and over land the same storms crossed, a little off
   elsewhere.
-- **`/almanac snow`** and the climate map's "which climates have snow" (its far state) go by each climate's deepest snow
-  on loaded land, so the far lines show wherever any loaded land has the season's snow.
+- **`/almanac snow`** goes by each climate's deepest snow on loaded land. The climate map's "which climates have snow"
+  (its far state) did too up to 1.1.0, so while loaded land was bare the far lines gave no season's snow, and far
+  terrain couldn't show snow a storm had laid far off. From far-snow-111 the far state counts a climate's snow as
+  begun wherever it may lie: since its snow was last surely gone (a warm spell long enough to melt the deepest snow
+  there could be), it has been cold for it while storms could reach it (`SeasonSnow.farLayers`, `SnowLog.snowMayLie`).
+  The lines then say where the season's snow can lie, and `snowLayersAt` how much lies at each place; a far mod
+  that reads only the snow where the player stands (LiteLights 1.0.9 to 1.0.15) shows that snow over the open lines.
 
 ## The problem
 

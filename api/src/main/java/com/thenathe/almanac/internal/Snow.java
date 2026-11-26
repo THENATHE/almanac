@@ -62,6 +62,13 @@ public interface Snow {
     /** Where snow lies now; null while no season runs. */
     @Nullable SnowNow now();
 
+    /**
+     * The layers of snow begun in each climate as far terrain counts them: {@link SnowNow#layers}, and under regional
+     * weather at least one in a climate whose snow may lie anywhere, even where no loaded land has any. Null while no
+     * season runs.
+     */
+    @Nullable Map<Climate, Integer> farLayers();
+
     /** The work queues, for {@code /almanac snow}; null while no server runs. */
     @Nullable String describeQueues();
 
@@ -79,8 +86,8 @@ public interface Snow {
     /** A client received the server's weather log. */
     void clientReceivedLog(CompoundTag log);
 
-    /** Once a client tick, in the overworld: works out the snow of the places asked about. */
-    void clientTicked(Level level);
+    /** Once a client tick, in the overworld: works out the snow of the places asked about, nearest the camera first. */
+    void clientTicked(Level level, double cameraX, double cameraZ);
 
     void clientDisconnected();
 

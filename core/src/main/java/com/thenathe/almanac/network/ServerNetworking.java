@@ -11,7 +11,6 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
-import java.util.function.Function;
 import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.core.registries.Registries;
@@ -55,7 +54,7 @@ public final class ServerNetworking {
         PayloadTypeRegistry.clientboundPlay().register(FarClimatePayloads.Forget.TYPE, FarClimatePayloads.Forget.CODEC);
         PayloadTypeRegistry.clientboundPlay().register(FarClimatePayloads.SnowChanged.TYPE, FarClimatePayloads.SnowChanged.CODEC);
         ServerPlayNetworking.registerGlobalReceiver(SettingsPayloads.Change.TYPE, (payload, context) ->
-                updateSettings(context.player(), payload.json(), changes -> ServerConfig.withChanges(ServerConfig.get(), changes)));
+                updateSettings(context.player(), payload.json()));
     }
 
     /**
@@ -229,24 +228,22 @@ public final class ServerNetworking {
         return player.permissions().hasPermission(Permissions.COMMANDS_GAMEMASTER) || server.isSingleplayerOwner(player.nameAndId());
     }
 
-    /**
-     * @param read turns what the player sent into the new settings, or null when it doesn't read
-     */
-    private static void updateSettings(ServerPlayer player, String json, Function<String, @Nullable ServerConfig> read) {
-        if (!mayEditSettings(player)) {
-            player.sendSystemMessage(Component.translatableWithFallback("almanac.settings.denied",
-                    "Only operators can change the server settings."));
-            sendSettings(player);
-            return;
+    /** Applies the changes a player sent, if the server's own check says they may change the settings. */
+    private static void updateSettings(ServerPlayer player, String json) {
+        SettingsChange change = SettingsChange.judge(mayEditSettings(player), ServerConfig.get(), json);
+        switch (change.outcome()) {
+            case DENIED -> {
+                player.sendSystemMessage(Component.translatableWithFallback("almanac.settings.denied",
+                        "Only operators can change the server settings."));
+                sendSettings(player);
+            }
+            case UNREADABLE -> {
+                player.sendSystemMessage(Component.translatableWithFallback("almanac.settings.unreadable",
+                        "The server couldn't read those settings, so nothing changed."));
+                sendSettings(player);
+            }
+            case APPLIED -> applySettings(player.level().getServer(), change.settings());
         }
-        ServerConfig updated = read.apply(json);
-        if (updated == null) {
-            player.sendSystemMessage(Component.translatableWithFallback("almanac.settings.unreadable",
-                    "The server couldn't read those settings, so nothing changed."));
-            sendSettings(player);
-            return;
-        }
-        applySettings(player.level().getServer(), updated);
     }
 
     /** Makes {@code updated} the live settings, brings the season up to date and tells every player. */

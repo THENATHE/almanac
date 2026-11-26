@@ -135,18 +135,39 @@ final class WeatherField implements WeatherView {
         return found;
     }
 
-    /** The storm maths of a weather tick: its era's, or, in an era with regional weather off, the nearest one's. */
-    private StormMaths mathsAt(double weatherTick) {
+    /**
+     * The era whose storm maths and share of time under rain a weather tick's storms follow: its own era, or, in an
+     * era with regional weather off, the last regional one before it, else the first after it; null if there is none.
+     * Before 1.1.0 an era with regional weather off took the first regional era's maths; every regional era then
+     * ran on version 1, so a record from then gets the same storms either way.
+     */
+    private WeatherRecord.@Nullable Era stormEraAt(double weatherTick) {
         WeatherRecord.Era era = eraOfWeatherTick(weatherTick);
         if (era != null && era.regional() && StormMaths.known(era.version())) {
-            return StormMaths.of(era.version());
+            return era;
         }
-        for (WeatherRecord.Era other : eras) {
-            if (other.regional() && StormMaths.known(other.version())) {
-                return StormMaths.of(other.version());
+        WeatherRecord.Era before = null;
+        for (int index = 0; index < eras.size(); index++) {
+            WeatherRecord.Era other = eras.get(index);
+            if (!other.regional() || !StormMaths.known(other.version())) {
+                continue;
             }
+            if (eraWeatherStarts[index] > weatherTick) {
+                return before != null ? before : other;
+            }
+            before = other;
         }
-        return StormMathsV1.INSTANCE;
+        return before;
+    }
+
+    /** The storm maths of a weather tick ({@link #stormEraAt}); version 1 where no era has any. */
+    private StormMaths mathsAt(double weatherTick) {
+        WeatherRecord.Era era = stormEraAt(weatherTick);
+        return era == null ? StormMathsV1.INSTANCE : StormMaths.of(era.version());
+    }
+
+    private static int rainShareOf(WeatherRecord.@Nullable Era era) {
+        return era == null ? 0 : era.rainShare();
     }
 
     private SubSeason.Season seasonAt(double weatherTick) {
@@ -164,9 +185,12 @@ final class WeatherField implements WeatherView {
         long lastDay = (long) Math.floor(to / latest.dayTicks());
         for (long day = firstDay; day <= lastDay; day++) {
             double dayStart = (double) day * latest.dayTicks();
-            StormMaths maths = mathsAt(dayStart);
+            WeatherRecord.Era stormEra = stormEraAt(dayStart);
+            StormMaths maths = stormEra == null ? StormMathsV1.INSTANCE : StormMaths.of(stormEra.version());
+            int rainShare = rainShareOf(stormEra);
             SubSeason.Season season = seasonAt(dayStart);
-            double reach = maths.reach() + extra;
+            // Storms born this day are at most to - dayStart ticks old by the end of the stretch asked about.
+            double reach = maths.reach(season, to - dayStart) + extra;
             int size = maths.cellSize();
             int firstI = (int) Math.floor((x - reach) / size);
             int lastI = (int) Math.floor((x + reach) / size);
@@ -174,7 +198,7 @@ final class WeatherField implements WeatherView {
             int lastJ = (int) Math.floor((z + reach) / size);
             for (int i = firstI; i <= lastI; i++) {
                 for (int j = firstJ; j <= lastJ; j++) {
-                    for (StormShape storm : cache.cell(maths, seed, i, j, day, season)) {
+                    for (StormShape storm : cache.cell(maths, seed, i, j, day, season, rainShare)) {
                         if (storm.birth <= to && storm.end > from) {
                             action.accept(storm);
                         }
